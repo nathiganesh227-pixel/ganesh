@@ -1,0 +1,38 @@
+# Fly.io configuration for PLAZA Staging API
+app = "plaza-staging-api"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "staging"
+  PORT = "3000"
+  API_PREFIX = "api/v1"
+  DB_MIGRATIONS_RUN = "true"
+  DB_SYNC = "false"
+  PAYMENT_PROVIDER = "razorpay"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[[http_service.checks]]
+  grace_period = "15s"
+  interval = "30s"
+  method = "GET"
+  timeout = "5s"
+  path = "/api/v1/health"
+
+[checks]
+  [checks.health]
+    port = 3000
+    type = "http"
+    interval = "15s"
+    timeout = "5s"
+    method = "GET"
+    path = "/api/v1/health"

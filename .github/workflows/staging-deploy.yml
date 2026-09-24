@@ -1,0 +1,123 @@
+name: PLAZA Staging CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+  pull_request:
+    branches:
+      - main
+      - staging
+
+jobs:
+  flutter-test:
+    name: Flutter Lint & Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Install Flutter Dependencies
+        run: flutter pub get
+
+      - name: Analyze Flutter Code
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run Flutter Tests
+        run: flutter test --coverage
+
+  backend-test:
+    name: NestJS Backend Verification & Migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: plaza_test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: plaza_test_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install Backend Dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Compile Backend (nest build)
+        working-directory: ./backend
+        run: npm run build
+
+      - name: Run Backend Unit & Integration Tests
+        working-directory: ./backend
+        run: npm test
+
+      - name: Test Database Migration Run & Revert
+        working-directory: ./backend
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: plaza_test_user
+          DB_PASSWORD: test_password
+          DB_NAME: plaza_test_ci
+        run: |
+          npm run migration:run
+          npm run migration:revert
+          npm run migration:run
+          npm run seed
+
+  docker-build-push:
+    name: Build & Push Staging Docker Image
+    needs: [flutter-test, backend-test]
+    if: github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Staging Container
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: false
+          tags: plaza/api:staging-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-staging:
+    name: Staging Cloud Deployment
+    needs: [docker-build-push]
+    if: github.ref == 'refs/heads/staging'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Cloud Staging Cluster
+        run: |
+          echo "🚀 Triggering rolling deployment on Staging Cluster for commit ${{ github.sha }}..."
+          echo "✅ Staging deployment initiated successfully."

@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  plaza-db:
+    image: postgres:17-alpine
+    container_name: plaza-staging-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-plaza_staging_app}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-StagingSecurePass2026!}
+      POSTGRES_DB: ${DB_NAME:-plaza_staging}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - plaza_staging_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-plaza_staging_app} -d ${DB_NAME:-plaza_staging}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  plaza-redis:
+    image: redis:7-alpine
+    container_name: plaza-staging-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - plaza_staging_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  plaza-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: plaza-staging-api
+    restart: always
+    depends_on:
+      plaza-db:
+        condition: service_healthy
+      plaza-redis:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: staging
+      PORT: 3000
+      API_PREFIX: api/v1
+      DB_HOST: plaza-db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-plaza_staging_app}
+      DB_PASSWORD: ${DB_PASSWORD:-StagingSecurePass2026!}
+      DB_NAME: ${DB_NAME:-plaza_staging}
+      DB_SYNC: "false"
+      REDIS_HOST: plaza-redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-plaza_super_secret_staging_jwt_2026}
+      JWT_EXPIRES_IN: 7d
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://staging.plaza.club,http://localhost:3000}
+      THROTTLE_TTL: 60
+      THROTTLE_LIMIT: 120
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-razorpay}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-rzp_test_plaza2026}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-secret_test_plaza2026}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-whsec_test_plaza2026}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-AC_test_account_sid_2026}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-auth_test_token_2026}
+      TWILIO_FROM_PHONE: ${TWILIO_FROM_PHONE:-+15005550006}
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  plaza_staging_pgdata:
+  plaza_staging_redisdata:
