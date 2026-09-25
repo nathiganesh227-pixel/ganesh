@@ -14,6 +14,7 @@ import 'rewards_screen.dart';
 import '../movies/movie_details_screen.dart';
 import '../dining/restaurant_details_screen.dart';
 import '../activities/activity_details_screen.dart';
+import '../auth/login_sheet.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -368,6 +369,12 @@ class ProfileScreen extends StatelessWidget {
                   ],
 
                   // More Settings
+                  _buildMenuTile(
+                    Icons.account_circle_outlined,
+                    'Account & Security',
+                    'Sign In / Switch',
+                    onTap: () => LoginSheet.show(context),
+                  ),
                   _buildMenuTile(
                     Icons.security_rounded,
                     'Security & Biometrics',

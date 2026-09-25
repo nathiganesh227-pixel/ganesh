@@ -45,4 +45,34 @@ class ApiEndpoints {
   static const String notifications = '/notifications';
   static const String search = '/search';
   static const String auth = '/auth';
+
+  // Admin Operations
+  static const String adminHealth = '/admin/health';
+  static const String adminDashboard = '/admin/dashboard';
+  static const String adminUsers = '/admin/users';
+  static String adminUserRole(String id) => '/admin/users/$id/role';
+  static const String adminMovies = '/admin/movies';
+  static String adminMovieDetails(String id) => '/admin/movies/$id';
+  static const String adminTheatres = '/admin/theatres';
+  static String adminTheatreDetails(String id) => '/admin/theatres/$id';
+  static String adminTheatreScreens(String theatreId) => '/admin/theatres/$theatreId/screens';
+  static const String adminScreens = '/admin/screens';
+  static String adminScreenDetails(String id) => '/admin/screens/$id';
+  static const String adminShows = '/admin/shows';
+  static String adminShowDetails(String id) => '/admin/shows/$id';
+  static const String adminDining = '/admin/dining';
+  static String adminDiningDetails(String id) => '/admin/dining/$id';
+  static const String adminEvents = '/admin/events';
+  static String adminEventDetails(String id) => '/admin/events/$id';
+  static const String adminActivities = '/admin/activities';
+  static String adminActivityDetails(String id) => '/admin/activities/$id';
+  static const String adminShopping = '/admin/shopping';
+  static String adminShoppingDetails(String id) => '/admin/shopping/$id';
+  static const String adminStays = '/admin/stays';
+  static String adminStayDetails(String id) => '/admin/stays/$id';
+  static const String adminSports = '/admin/sports';
+  static String adminSportsDetails(String id) => '/admin/sports/$id';
+  static const String adminAuditLogs = '/admin/audit-logs';
+  static String adminPublish(String vertical, String id) => '/admin/$vertical/$id/publish';
+  static String adminUnpublish(String vertical, String id) => '/admin/$vertical/$id/unpublish';
 }
