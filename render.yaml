@@ -1,11 +1,12 @@
 services:
   - type: web
     name: plaza-staging-api
-    runtime: docker
-    dockerContext: ./backend
-    dockerfilePath: ./backend/Dockerfile
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:prod
     plan: free
-    region: singapore # or frankfurt/oregon
+    region: singapore
     healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_ENV
