@@ -20,17 +20,18 @@ export class MoviesService {
   ) {}
 
   async findAll(query?: string): Promise<MovieEntity[]> {
+    const all = await this.movieRepo.find();
+    const published = all.filter((m) => m.isNowShowing || m.isComingSoon);
     if (query) {
       const q = query.toLowerCase();
-      const all = await this.movieRepo.find();
-      return all.filter(
+      return published.filter(
         (m) =>
           m.title?.toLowerCase().includes(q) ||
           m.director?.toLowerCase().includes(q) ||
           m.genres?.some((g) => g.toLowerCase().includes(q)),
       );
     }
-    return this.movieRepo.find();
+    return published;
   }
 
   async findOne(id: string): Promise<MovieEntity> {
