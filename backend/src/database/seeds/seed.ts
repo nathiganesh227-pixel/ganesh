@@ -1,5 +1,5 @@
-import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import { AppDataSource } from '../data-source';
 import { User, UserRole } from '../entities/user.entity';
 import { MovieEntity } from '../entities/movie.entity';
 import { TheatreEntity } from '../entities/theatre.entity';
@@ -14,31 +14,6 @@ import { PlanEntity } from '../entities/plan.entity';
 import { RewardEntity } from '../entities/reward.entity';
 import { NotificationEntity } from '../entities/notification.entity';
 
-const AppDataSource = new DataSource({
-  type: 'postgres',
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5432', 10),
-  username: process.env.DB_USER || 'nathigopiganesh',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'plaza_dev',
-  entities: [
-    User,
-    MovieEntity,
-    TheatreEntity,
-    RestaurantEntity,
-    EventEntity,
-    ActivityEntity,
-    ProductEntity,
-    HotelEntity,
-    SportsVenueEntity,
-    BookingEntity,
-    PlanEntity,
-    RewardEntity,
-    NotificationEntity,
-  ],
-  synchronize: true,
-});
-
 export async function runSeed() {
   console.log('🌱 Connecting to database for comprehensive 7-vertical seed...');
   if (!AppDataSource.isInitialized) {
@@ -46,22 +21,38 @@ export async function runSeed() {
   }
   console.log('✅ Connected to database.');
 
-  // 1. Users
+  console.log('🔄 Checking and applying database migrations...');
+  try {
+    const migrations = await AppDataSource.runMigrations();
+    console.log(`✅ Applied ${migrations.length} migration(s).`);
+  } catch (err: any) {
+    console.warn(`⚠️ Migration step notice: ${err?.message || err}`);
+  }
+
+  // 1. Users (Idempotent: preserves existing user if already created)
   const userRepo = AppDataSource.getRepository(User);
-  const salt = await bcrypt.genSalt(10);
-  const guestHash = await bcrypt.hash('PlazaGuest123!', salt);
-  await userRepo.save([
-    {
-      id: 'usr_default_1',
-      email: 'guest@plaza.app',
-      passwordHash: guestHash,
-      name: 'Gopi Ganesh',
-      phone: '+91 98765 43210',
-      city: 'Hyderabad',
-      rewardPoints: 2480,
-      role: UserRole.USER,
-    },
-  ]);
+  const existingUser = await userRepo.findOne({
+    where: [{ id: 'usr_default_1' }, { email: 'guest@plaza.app' }],
+  });
+  if (!existingUser) {
+    const salt = await bcrypt.genSalt(10);
+    const guestHash = await bcrypt.hash('PlazaGuest123!', salt);
+    await userRepo.save([
+      {
+        id: 'usr_default_1',
+        email: 'guest@plaza.app',
+        passwordHash: guestHash,
+        name: 'Gopi Ganesh',
+        phone: '+91 98765 43210',
+        city: 'Hyderabad',
+        rewardPoints: 2480,
+        role: UserRole.USER,
+      },
+    ]);
+    console.log('  -> Seeded demo user: usr_default_1 (guest@plaza.app)');
+  } else {
+    console.log(`  -> Demo user already present (${existingUser.email}), preserved.`);
+  }
 
   // 2. Movies
   const movieRepo = AppDataSource.getRepository(MovieEntity);
@@ -854,9 +845,17 @@ export async function runSeed() {
 
 if (require.main === module) {
   runSeed()
-    .then(() => process.exit(0))
-    .catch((err) => {
+    .then(async () => {
+      if (AppDataSource.isInitialized) {
+        await AppDataSource.destroy();
+      }
+      process.exit(0);
+    })
+    .catch(async (err) => {
       console.error('❌ Seeding failed:', err);
+      if (AppDataSource.isInitialized) {
+        await AppDataSource.destroy();
+      }
       process.exit(1);
     });
 }
