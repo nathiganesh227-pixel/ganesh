@@ -1,7 +1,9 @@
 import {
   Controller,
   Get,
+  Post,
   Patch,
+  Delete,
   Param,
   Body,
   Query,
@@ -15,6 +17,16 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../database/entities/user.entity';
 import { AdminService } from './admin.service';
 import { UpdateRoleDto, PaginationQueryDto } from './dto/admin.dto';
+import {
+  CreateMovieDto,
+  UpdateMovieDto,
+  CreateTheatreDto,
+  UpdateTheatreDto,
+  CreateScreenDto,
+  UpdateScreenDto,
+  CreateShowDto,
+  UpdateShowDto,
+} from './dto/movie-show.dto';
 
 @ApiTags('admin')
 @Controller('admin')
@@ -32,31 +44,25 @@ export class AdminController {
 
   @Get('dashboard')
   @ApiOperation({ summary: 'Admin dashboard metrics and catalog entity counts' })
-  @ApiResponse({ status: 200, description: 'Aggregate entity counts returned' })
   async getDashboard() {
     return this.adminService.getDashboardStats();
   }
 
+  // ---------------- USER MANAGEMENT ----------------
   @Get('users')
   @ApiOperation({ summary: 'List all users with safe projections (no secrets/hashes)' })
-  @ApiResponse({ status: 200, description: 'List of safe users returned' })
   async getUsers(@Query() query: PaginationQueryDto) {
     return this.adminService.getUsers(query.limit, query.offset);
   }
 
   @Get('users/:id')
   @ApiOperation({ summary: 'Get user details by ID (safe projection)' })
-  @ApiResponse({ status: 200, description: 'User details returned' })
-  @ApiResponse({ status: 404, description: 'User not found' })
   async getUserById(@Param('id') id: string) {
     return this.adminService.getUserById(id);
   }
 
   @Patch('users/:id/role')
   @ApiOperation({ summary: 'Update user role with last-admin demotion protection' })
-  @ApiResponse({ status: 200, description: 'User role updated and audit logged' })
-  @ApiResponse({ status: 400, description: 'Invalid role or last-admin lockout prevented' })
-  @ApiResponse({ status: 404, description: 'User not found' })
   async updateUserRole(
     @Param('id') id: string,
     @Body() dto: UpdateRoleDto,
@@ -65,9 +71,145 @@ export class AdminController {
     return this.adminService.updateUserRole(id, dto, req.user);
   }
 
+  // ---------------- MOVIE MANAGEMENT ----------------
+  @Get('movies')
+  @ApiOperation({ summary: 'List all movies' })
+  async getMovies(@Query() query: PaginationQueryDto) {
+    return this.adminService.getMovies(query.limit, query.offset);
+  }
+
+  @Post('movies')
+  @ApiOperation({ summary: 'Create a new movie release' })
+  async createMovie(@Body() dto: CreateMovieDto, @Request() req: any) {
+    return this.adminService.createMovie(dto, req.user);
+  }
+
+  @Patch('movies/:id')
+  @ApiOperation({ summary: 'Update movie details' })
+  async updateMovie(
+    @Param('id') id: string,
+    @Body() dto: UpdateMovieDto,
+    @Request() req: any,
+  ) {
+    return this.adminService.updateMovie(id, dto, req.user);
+  }
+
+  @Delete('movies/:id')
+  @ApiOperation({ summary: 'Delete or archive a movie' })
+  async deleteMovie(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.deleteMovie(id, req.user);
+  }
+
+  // ---------------- THEATRE MANAGEMENT ----------------
+  @Get('theatres')
+  @ApiOperation({ summary: 'List all theatres' })
+  async getTheatres(@Query() query: PaginationQueryDto) {
+    return this.adminService.getTheatres(query.limit, query.offset);
+  }
+
+  @Get('theatres/:id')
+  @ApiOperation({ summary: 'Get theatre by ID' })
+  async getTheatreById(@Param('id') id: string) {
+    return this.adminService.getTheatreById(id);
+  }
+
+  @Post('theatres')
+  @ApiOperation({ summary: 'Create a new theatre venue' })
+  async createTheatre(@Body() dto: CreateTheatreDto, @Request() req: any) {
+    return this.adminService.createTheatre(dto, req.user);
+  }
+
+  @Patch('theatres/:id')
+  @ApiOperation({ summary: 'Update theatre details' })
+  async updateTheatre(
+    @Param('id') id: string,
+    @Body() dto: UpdateTheatreDto,
+    @Request() req: any,
+  ) {
+    return this.adminService.updateTheatre(id, dto, req.user);
+  }
+
+  // ---------------- SCREEN MANAGEMENT ----------------
+  @Get('screens')
+  @ApiOperation({ summary: 'List screens, optionally by theatre' })
+  async getScreens(
+    @Query('theatreId') theatreId?: string,
+    @Query('limit') limit?: number,
+    @Query('offset') offset?: number,
+  ) {
+    return this.adminService.getScreens(theatreId, limit, offset);
+  }
+
+  @Get('screens/:id')
+  @ApiOperation({ summary: 'Get screen by ID' })
+  async getScreenById(@Param('id') id: string) {
+    return this.adminService.getScreenById(id);
+  }
+
+  @Post('theatres/:theatreId/screens')
+  @ApiOperation({ summary: 'Create a new screen in a theatre' })
+  async createScreen(
+    @Param('theatreId') theatreId: string,
+    @Body() dto: CreateScreenDto,
+    @Request() req: any,
+  ) {
+    return this.adminService.createScreen(theatreId, dto, req.user);
+  }
+
+  @Patch('screens/:id')
+  @ApiOperation({ summary: 'Update screen configuration' })
+  async updateScreen(
+    @Param('id') id: string,
+    @Body() dto: UpdateScreenDto,
+    @Request() req: any,
+  ) {
+    return this.adminService.updateScreen(id, dto, req.user);
+  }
+
+  // ---------------- SHOW MANAGEMENT ----------------
+  @Get('shows')
+  @ApiOperation({ summary: 'List scheduled movie shows' })
+  async getShows(
+    @Query('movieId') movieId?: string,
+    @Query('theatreId') theatreId?: string,
+    @Query('date') date?: string,
+    @Query('limit') limit?: number,
+    @Query('offset') offset?: number,
+  ) {
+    return this.adminService.getShows(movieId, theatreId, date, limit, offset);
+  }
+
+  @Get('shows/:id')
+  @ApiOperation({ summary: 'Get show by ID' })
+  async getShowById(@Param('id') id: string) {
+    return this.adminService.getShowById(id);
+  }
+
+  @Post('shows')
+  @ApiOperation({ summary: 'Create a new movie showtime slot' })
+  async createShow(@Body() dto: CreateShowDto, @Request() req: any) {
+    return this.adminService.createShow(dto, req.user);
+  }
+
+  @Patch('shows/:id')
+  @ApiOperation({ summary: 'Update showtime slot' })
+  async updateShow(
+    @Param('id') id: string,
+    @Body() dto: UpdateShowDto,
+    @Request() req: any,
+  ) {
+    return this.adminService.updateShow(id, dto, req.user);
+  }
+
+  @Delete('shows/:id')
+  @ApiOperation({ summary: 'Delete or cancel a showtime slot' })
+  async deleteShow(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.deleteShow(id, req.user);
+  }
+
+  // ---------------- AUDIT LOGS ----------------
   @Get('audit-logs')
   @ApiOperation({ summary: 'List recent administrative audit logs' })
-  @ApiResponse({ status: 200, description: 'List of audit logs returned' })
   async getAuditLogs(@Query() query: PaginationQueryDto) {
     return this.adminService.getAuditLogs(query.limit, query.offset);
   }

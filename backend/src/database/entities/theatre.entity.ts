@@ -8,10 +8,16 @@ export class TheatreEntity {
   @Column()
   name: string;
 
+  @Column({ default: 'Hyderabad' })
+  city: string;
+
+  @Column({ nullable: true })
+  address: string;
+
   @Column()
   location: string;
 
-  @Column()
+  @Column({ default: '0 km' })
   distance: string;
 
   @Column('simple-array')
@@ -29,6 +35,9 @@ export class TheatreEntity {
     isAlmostFull?: boolean;
     isSoldOut?: boolean;
   }[];
+
+  @Column({ default: true })
+  isActive: boolean;
 
   @CreateDateColumn()
   createdAt: Date;

@@ -27,4 +27,16 @@ export class MoviesController {
   async findTheatres(@Param('id') id: string): Promise<TheatreEntity[]> {
     return this.moviesService.findTheatres(id);
   }
+
+  @Get(':id/shows')
+  @ApiOperation({ summary: 'Get scheduled movie shows with pricing and screen details' })
+  @ApiResponse({ status: 200, description: 'Shows for movie returned' })
+  async getMovieShows(
+    @Param('id') id: string,
+    @Query('date') date?: string,
+    @Query('city') city?: string,
+    @Query('theatre') theatreId?: string,
+  ) {
+    return this.moviesService.findShowsForMovie(id, { date, city, theatreId });
+  }
 }

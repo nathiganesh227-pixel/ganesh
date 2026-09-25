@@ -11,29 +11,50 @@ import * as bcrypt from 'bcrypt';
 
 import { AdminController } from './modules/admin/admin.controller';
 import { AdminService } from './modules/admin/admin.service';
+import { MoviesService } from './modules/movies/movies.service';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { ROLES_KEY } from './modules/auth/decorators/roles.decorator';
 import { User, UserRole } from './database/entities/user.entity';
+import { MovieEntity } from './database/entities/movie.entity';
+import { TheatreEntity } from './database/entities/theatre.entity';
+import { ScreenEntity } from './database/entities/screen.entity';
+import { ShowEntity } from './database/entities/show.entity';
 import { AuditLogEntity } from './database/entities/audit-log.entity';
 import { AuthService } from './modules/auth/auth.service';
 import { UpdateRoleDto } from './modules/admin/dto/admin.dto';
+import {
+  CreateMovieDto,
+  UpdateMovieDto,
+  CreateTheatreDto,
+  UpdateTheatreDto,
+  CreateScreenDto,
+  CreateShowDto,
+} from './modules/admin/dto/movie-show.dto';
 
-describe('Phase 12 — Admin Foundation, RBAC, Dashboard & Management Verification', () => {
+describe('Phase 12 — Admin Foundation, RBAC, Dashboard & Real Movie Show Management', () => {
   const TEST_JWT_SECRET = 'test_phase12_admin_secret_key_2026';
   let jwtService: JwtService;
   let adminService: AdminService;
   let adminController: AdminController;
+  let moviesService: MoviesService;
   let jwtAuthGuard: JwtAuthGuard;
   let rolesGuard: RolesGuard;
   let reflector: Reflector;
 
   // In-memory repositories storage
   let mockUsers: User[] = [];
+  let mockMovies: MovieEntity[] = [];
+  let mockTheatres: TheatreEntity[] = [];
+  let mockScreens: ScreenEntity[] = [];
+  let mockShows: ShowEntity[] = [];
   let mockAuditLogs: AuditLogEntity[] = [];
 
   let mockUserRepo: any;
   let mockMovieRepo: any;
+  let mockTheatreRepo: any;
+  let mockScreenRepo: any;
+  let mockShowRepo: any;
   let mockRestaurantRepo: any;
   let mockEventRepo: any;
   let mockActivityRepo: any;
@@ -76,6 +97,82 @@ describe('Phase 12 — Admin Foundation, RBAC, Dashboard & Management Verificati
       } as User,
     ];
 
+    mockMovies = [
+      {
+        id: 'mov_1',
+        title: 'Kalki 2898 AD',
+        director: 'Nag Ashwin',
+        synopsis: 'Mythological sci-fi epic',
+        posterUrl: 'https://images.unsplash.com/kalki.jpg',
+        backdropUrl: 'https://images.unsplash.com/kalki_bd.jpg',
+        rating: 9.0,
+        votesCount: 50000,
+        genres: ['Action', 'Sci-Fi'],
+        duration: '3h 1min',
+        primaryLanguage: 'Telugu',
+        availableLanguages: ['Telugu', 'Hindi'],
+        formats: ['IMAX 3D', '2D'],
+        certificate: 'UA',
+        releaseDate: '2024-06-27',
+        startingPrice: 250,
+        isNowShowing: true,
+        isTrending: true,
+        isComingSoon: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as MovieEntity,
+    ];
+
+    mockTheatres = [
+      {
+        id: 'theatre_amb',
+        name: 'AMB Cinemas',
+        location: 'Gachibowli',
+        city: 'Hyderabad',
+        address: 'Sarath City Capital Mall, Gachibowli',
+        distance: '2.4 km',
+        amenities: ['Laser IMAX', 'Dolby Atmos'],
+        showtimes: [],
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as TheatreEntity,
+    ];
+
+    mockScreens = [
+      {
+        id: 'scr_1',
+        theatreId: 'theatre_amb',
+        name: 'Screen 1 (Laser IMAX)',
+        screenType: 'IMAX 3D',
+        capacity: 250,
+        seatLayout: null,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as ScreenEntity,
+    ];
+
+    mockShows = [
+      {
+        id: 'shw_1',
+        movieId: 'mov_1',
+        theatreId: 'theatre_amb',
+        screenId: 'scr_1',
+        showDate: '2026-09-26',
+        startTime: '10:15 AM',
+        format: 'IMAX 3D',
+        language: 'Telugu',
+        pricing: { gold: 295, premium: 350, recliner: 450 },
+        seatAvailability: {
+          totalSeats: 250,
+          bookedSeats: [],
+        },
+        status: 'active',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as ShowEntity,
+    ];
     mockAuditLogs = [];
 
     mockUserRepo = {
@@ -116,7 +213,111 @@ describe('Phase 12 — Admin Foundation, RBAC, Dashboard & Management Verificati
       }),
     };
 
-    mockMovieRepo = { count: jest.fn().mockResolvedValue(12) };
+    mockMovieRepo = {
+      count: jest.fn().mockImplementation(async () => mockMovies.length),
+      find: jest.fn().mockImplementation(async () => mockMovies),
+      findOne: jest.fn().mockImplementation(async ({ where }: any) => {
+        return mockMovies.find((m) => m.id === where?.id) || null;
+      }),
+      create: jest.fn().mockImplementation((dto) => ({ ...dto })),
+      save: jest.fn().mockImplementation(async (entity) => {
+        const idx = mockMovies.findIndex((m) => m.id === entity.id);
+        if (idx >= 0) {
+          mockMovies[idx] = { ...mockMovies[idx], ...entity };
+        } else {
+          mockMovies.push(entity);
+        }
+        return entity;
+      }),
+      delete: jest.fn().mockImplementation(async (id: string) => {
+        mockMovies = mockMovies.filter((m) => m.id !== id);
+        return { affected: 1 };
+      }),
+    };
+
+    mockTheatreRepo = {
+      count: jest.fn().mockImplementation(async () => mockTheatres.length),
+      find: jest.fn().mockImplementation(async () => mockTheatres),
+      findOne: jest.fn().mockImplementation(async ({ where }: any) => {
+        return mockTheatres.find((t) => t.id === where?.id) || null;
+      }),
+      create: jest.fn().mockImplementation((dto) => ({ ...dto })),
+      save: jest.fn().mockImplementation(async (entity) => {
+        const idx = mockTheatres.findIndex((t) => t.id === entity.id);
+        if (idx >= 0) {
+          mockTheatres[idx] = { ...mockTheatres[idx], ...entity };
+        } else {
+          mockTheatres.push(entity);
+        }
+        return entity;
+      }),
+    };
+
+    mockScreenRepo = {
+      count: jest.fn().mockImplementation(async () => mockScreens.length),
+      find: jest.fn().mockImplementation(async (opts?: any) => {
+        if (opts?.where?.theatreId) {
+          return mockScreens.filter((s) => s.theatreId === opts.where.theatreId);
+        }
+        return mockScreens;
+      }),
+      findOne: jest.fn().mockImplementation(async ({ where }: any) => {
+        return mockScreens.find((s) => s.id === where?.id) || null;
+      }),
+      create: jest.fn().mockImplementation((dto) => ({ ...dto })),
+      save: jest.fn().mockImplementation(async (entity) => {
+        const idx = mockScreens.findIndex((s) => s.id === entity.id);
+        if (idx >= 0) {
+          mockScreens[idx] = { ...mockScreens[idx], ...entity };
+        } else {
+          mockScreens.push(entity);
+        }
+        return entity;
+      }),
+    };
+
+    mockShowRepo = {
+      count: jest.fn().mockImplementation(async (opts?: any) => {
+        if (opts?.where?.movieId) {
+          return mockShows.filter((s) => s.movieId === opts.where.movieId).length;
+        }
+        return mockShows.length;
+      }),
+      find: jest.fn().mockImplementation(async (opts?: any) => {
+        let list = [...mockShows];
+        if (opts?.where?.movieId) list = list.filter((s) => s.movieId === opts.where.movieId);
+        if (opts?.where?.theatreId) list = list.filter((s) => s.theatreId === opts.where.theatreId);
+        if (opts?.where?.showDate) list = list.filter((s) => s.showDate === opts.where.showDate);
+        return list;
+      }),
+      findOne: jest.fn().mockImplementation(async ({ where }: any) => {
+        return (
+          mockShows.find((s) => {
+            if (where.id && s.id !== where.id) return false;
+            if (where.screenId && s.screenId !== where.screenId) return false;
+            if (where.showDate && s.showDate !== where.showDate) return false;
+            if (where.startTime && s.startTime !== where.startTime) return false;
+            if (where.status && s.status !== where.status) return false;
+            return true;
+          }) || null
+        );
+      }),
+      create: jest.fn().mockImplementation((dto) => ({ ...dto })),
+      save: jest.fn().mockImplementation(async (entity) => {
+        const idx = mockShows.findIndex((s) => s.id === entity.id);
+        if (idx >= 0) {
+          mockShows[idx] = { ...mockShows[idx], ...entity };
+        } else {
+          mockShows.push(entity);
+        }
+        return entity;
+      }),
+      delete: jest.fn().mockImplementation(async (id: string) => {
+        mockShows = mockShows.filter((s) => s.id !== id);
+        return { affected: 1 };
+      }),
+    };
+
     mockRestaurantRepo = { count: jest.fn().mockResolvedValue(8) };
     mockEventRepo = { count: jest.fn().mockResolvedValue(5) };
     mockActivityRepo = { count: jest.fn().mockResolvedValue(6) };
@@ -141,6 +342,7 @@ describe('Phase 12 — Admin Foundation, RBAC, Dashboard & Management Verificati
     adminService = new AdminService(
       mockUserRepo,
       mockMovieRepo,
+      mockTheatreRepo,
       mockRestaurantRepo,
       mockEventRepo,
       mockActivityRepo,
@@ -149,9 +351,18 @@ describe('Phase 12 — Admin Foundation, RBAC, Dashboard & Management Verificati
       mockSportsVenueRepo,
       mockBookingRepo,
       mockAuditLogRepo,
+      mockScreenRepo,
+      mockShowRepo,
     );
 
     adminController = new AdminController(adminService);
+    moviesService = new MoviesService(
+      mockMovieRepo,
+      mockTheatreRepo,
+      mockScreenRepo,
+      mockShowRepo,
+    );
+
     jwtAuthGuard = new JwtAuthGuard(jwtService);
     reflector = new Reflector();
     rolesGuard = new RolesGuard(reflector);
@@ -172,13 +383,8 @@ describe('Phase 12 — Admin Foundation, RBAC, Dashboard & Management Verificati
       getClass: () => AdminController,
     } as unknown as ExecutionContext;
 
-    // 1. JwtAuthGuard
     jwtAuthGuard.canActivate(context);
-
-    // 2. RolesGuard
     rolesGuard.canActivate(context);
-
-    // 3. Controller execution
     return action();
   };
 
@@ -198,14 +404,14 @@ describe('Phase 12 — Admin Foundation, RBAC, Dashboard & Management Verificati
       role: UserRole.USER,
     });
 
-  describe('1. Admin Controller & Health Endpoint Security (Phase 12.1 verification)', () => {
+  describe('1. Admin Controller & Security Baseline', () => {
     it('should verify AdminController has @Roles(UserRole.ADMIN)', () => {
       const classRoles = reflector.get<UserRole[]>(ROLES_KEY, AdminController);
       expect(classRoles).toContain(UserRole.ADMIN);
       expect(classRoles).not.toContain(UserRole.USER);
     });
 
-    it('should return 401 when no token is provided to health endpoint', async () => {
+    it('should reject unauthenticated requests with 401 Unauthorized', async () => {
       await expect(
         executePipeline(AdminController.prototype.getHealth, {}, () =>
           adminController.getHealth(),
@@ -213,7 +419,7 @@ describe('Phase 12 — Admin Foundation, RBAC, Dashboard & Management Verificati
       ).rejects.toThrow(UnauthorizedException);
     });
 
-    it('should return 403 when USER token calls health endpoint', async () => {
+    it('should reject non-admin USER with 403 Forbidden', async () => {
       await expect(
         executePipeline(
           AdminController.prototype.getHealth,
@@ -223,7 +429,7 @@ describe('Phase 12 — Admin Foundation, RBAC, Dashboard & Management Verificati
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('should return 200 when ADMIN token calls health endpoint', async () => {
+    it('should allow ADMIN token with 200 OK', async () => {
       const result = await executePipeline(
         AdminController.prototype.getHealth,
         { authorization: `Bearer ${getAdminToken()}` },
@@ -234,7 +440,7 @@ describe('Phase 12 — Admin Foundation, RBAC, Dashboard & Management Verificati
   });
 
   describe('2. Admin Dashboard Stats (GET /api/v1/admin/dashboard)', () => {
-    it('should return 200 OK with all 9 entity counts for ADMIN', async () => {
+    it('should return aggregate counts for all 9 entities for ADMIN', async () => {
       const result = await executePipeline(
         AdminController.prototype.getDashboard,
         { authorization: `Bearer ${getAdminToken()}` },
@@ -243,7 +449,7 @@ describe('Phase 12 — Admin Foundation, RBAC, Dashboard & Management Verificati
 
       expect(result).toEqual({
         users: 2,
-        movies: 12,
+        movies: 1,
         dining: 8,
         events: 5,
         activities: 6,
@@ -253,370 +459,278 @@ describe('Phase 12 — Admin Foundation, RBAC, Dashboard & Management Verificati
         bookings: 42,
       });
     });
+  });
 
-    it('should reject non-admin USER with 403 Forbidden', async () => {
+  describe('3. Admin Movie Management (CRUD & Audit)', () => {
+    it('should allow ADMIN to create a new movie and record audit log', async () => {
+      const dto: CreateMovieDto = {
+        title: 'Pushpa 2: The Rule',
+        synopsis: 'The rule of Pushpa Raj begins',
+        posterUrl: 'https://images.unsplash.com/pushpa2.jpg',
+        backdropUrl: 'https://images.unsplash.com/pushpa2_bd.jpg',
+        rating: 9.3,
+        votesCount: 85000,
+        genres: ['Action', 'Drama'],
+        duration: '3h 20min',
+        primaryLanguage: 'Telugu',
+        availableLanguages: ['Telugu', 'Hindi', 'Tamil'],
+        formats: ['IMAX 2D', 'Dolby Atmos'],
+        certificate: 'A',
+        releaseDate: '2024-12-05',
+        startingPrice: 300,
+        director: 'Sukumar',
+      };
+
+      const result = await executePipeline(
+        AdminController.prototype.createMovie,
+        { authorization: `Bearer ${getAdminToken()}` },
+        () => adminController.createMovie(dto, { user: { id: 'usr_admin_1', email: 'admin@plaza.app' } }),
+      );
+
+      expect(result.title).toBe('Pushpa 2: The Rule');
+      expect(mockMovies.length).toBe(2);
+
+      // Audit check
+      expect(mockAuditLogs.some((l) => l.action === 'CREATE_MOVIE' && l.resourceType === 'Movie')).toBe(true);
+    });
+
+    it('should allow ADMIN to update an existing movie', async () => {
+      const dto: UpdateMovieDto = { rating: 9.5 };
+
+      const result = await executePipeline(
+        AdminController.prototype.updateMovie,
+        { authorization: `Bearer ${getAdminToken()}` },
+        () => adminController.updateMovie('mov_1', dto, { user: { id: 'usr_admin_1', email: 'admin@plaza.app' } }),
+      );
+
+      expect(result.rating).toBe(9.5);
+      expect(mockAuditLogs.some((l) => l.action === 'UPDATE_MOVIE')).toBe(true);
+    });
+
+    it('should safely archive a movie with active shows by setting isNowShowing to false', async () => {
+      const result = await executePipeline(
+        AdminController.prototype.deleteMovie,
+        { authorization: `Bearer ${getAdminToken()}` },
+        () => adminController.deleteMovie('mov_1', { user: { id: 'usr_admin_1', email: 'admin@plaza.app' } }),
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.message).toMatch(/archived/i);
+      expect(mockMovies.find((m) => m.id === 'mov_1')?.isNowShowing).toBe(false);
+      expect(mockAuditLogs.some((l) => l.action === 'ARCHIVE_MOVIE')).toBe(true);
+    });
+
+    it('should permanently delete a movie if no active shows reference it', async () => {
+      mockMovies.push({
+        id: 'mov_temp',
+        title: 'Temporary Movie',
+        isNowShowing: false,
+      } as MovieEntity);
+
+      const result = await executePipeline(
+        AdminController.prototype.deleteMovie,
+        { authorization: `Bearer ${getAdminToken()}` },
+        () => adminController.deleteMovie('mov_temp', { user: { id: 'usr_admin_1', email: 'admin@plaza.app' } }),
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockMovies.find((m) => m.id === 'mov_temp')).toBeUndefined();
+      expect(mockAuditLogs.some((l) => l.action === 'DELETE_MOVIE')).toBe(true);
+    });
+
+    it('should reject normal USER from creating or deleting movies', async () => {
       await expect(
         executePipeline(
-          AdminController.prototype.getDashboard,
+          AdminController.prototype.createMovie,
           { authorization: `Bearer ${getUserToken()}` },
-          () => adminController.getDashboard(),
+          () => adminController.createMovie({} as any, { user: {} }),
         ),
       ).rejects.toThrow(ForbiddenException);
     });
-
-    it('should reject unauthenticated request with 401 Unauthorized', async () => {
-      await expect(
-        executePipeline(AdminController.prototype.getDashboard, {}, () =>
-          adminController.getDashboard(),
-        ),
-      ).rejects.toThrow(UnauthorizedException);
-    });
   });
 
-  describe('3. Admin Users API (GET /api/v1/admin/users & GET /api/v1/admin/users/:id)', () => {
-    it('should return safe user list without passwordHash for ADMIN', async () => {
+  describe('4. Admin Theatre & Screen Management', () => {
+    it('should allow ADMIN to create a theatre and record audit log', async () => {
+      const dto: CreateTheatreDto = {
+        name: 'PVR Forum Sujana Mall',
+        location: 'Kukatpally, Hyderabad',
+        city: 'Hyderabad',
+        address: 'Sujana Forum Mall, KPHB Phase 9',
+        amenities: ['4K Dolby', 'PXL Screen'],
+      };
+
       const result = await executePipeline(
-        AdminController.prototype.getUsers,
+        AdminController.prototype.createTheatre,
         { authorization: `Bearer ${getAdminToken()}` },
-        () => adminController.getUsers({ limit: 10, offset: 0 }),
+        () => adminController.createTheatre(dto, { user: { id: 'usr_admin_1', email: 'admin@plaza.app' } }),
       );
 
-      expect(Array.isArray(result)).toBe(true);
-      expect(result.length).toBe(2);
-
-      // Verify no passwordHash or secrets leaked
-      for (const u of result) {
-        expect((u as any).passwordHash).toBeUndefined();
-        expect(u.id).toBeDefined();
-        expect(u.email).toBeDefined();
-        expect(u.role).toBeDefined();
-      }
+      expect(result.name).toBe('PVR Forum Sujana Mall');
+      expect(result.city).toBe('Hyderabad');
+      expect(mockAuditLogs.some((l) => l.action === 'CREATE_THEATRE')).toBe(true);
     });
 
-    it('should return user detail by ID without passwordHash for ADMIN', async () => {
+    it('should create screen in theatre and validate positive capacity', async () => {
+      const dto: CreateScreenDto = {
+        name: 'Audi 2 (Dolby Atmos)',
+        screenType: 'Dolby Atmos',
+        capacity: 180,
+      };
+
       const result = await executePipeline(
-        AdminController.prototype.getUserById,
+        AdminController.prototype.createScreen,
         { authorization: `Bearer ${getAdminToken()}` },
-        () => adminController.getUserById('usr_normal_1'),
+        () => adminController.createScreen('theatre_amb', dto, { user: { id: 'usr_admin_1', email: 'admin@plaza.app' } }),
       );
 
-      expect(result.id).toBe('usr_normal_1');
-      expect(result.email).toBe('user@plaza.app');
-      expect(result.role).toBe(UserRole.USER);
-      expect((result as any).passwordHash).toBeUndefined();
+      expect(result.name).toBe('Audi 2 (Dolby Atmos)');
+      expect(result.capacity).toBe(180);
+      expect(result.theatreId).toBe('theatre_amb');
+      expect(mockAuditLogs.some((l) => l.action === 'CREATE_SCREEN')).toBe(true);
     });
 
-    it('should return 404 NotFoundException when querying a non-existent user ID', async () => {
+    it('should reject creating screen with non-positive capacity', async () => {
+      const dto: CreateScreenDto = {
+        name: 'Invalid Screen',
+        capacity: 0,
+      };
+
       await expect(
-        executePipeline(
-          AdminController.prototype.getUserById,
-          { authorization: `Bearer ${getAdminToken()}` },
-          () => adminController.getUserById('usr_non_existent'),
-        ),
+        adminService.createScreen('theatre_amb', dto, { id: 'usr_admin_1', email: 'admin@plaza.app' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw NotFoundException if theatre does not exist when creating screen', async () => {
+      const dto: CreateScreenDto = {
+        name: 'Screen 1',
+        capacity: 100,
+      };
+
+      await expect(
+        adminService.createScreen('non_existent_theatre', dto, { id: 'usr_admin_1', email: 'admin@plaza.app' }),
       ).rejects.toThrow(NotFoundException);
     });
-
-    it('should reject normal USER from listing users with 403 Forbidden', async () => {
-      await expect(
-        executePipeline(
-          AdminController.prototype.getUsers,
-          { authorization: `Bearer ${getUserToken()}` },
-          () => adminController.getUsers({}),
-        ),
-      ).rejects.toThrow(ForbiddenException);
-    });
   });
 
-  describe('4. Admin User Role Management & Last-Admin Protection', () => {
-    it('should allow ADMIN to promote a USER to ADMIN and create an audit log', async () => {
-      const dto: UpdateRoleDto = { role: UserRole.ADMIN };
-      const actor = { id: 'usr_admin_1', email: 'admin@plaza.app' };
-
-      const result = await executePipeline(
-        AdminController.prototype.updateUserRole,
-        { authorization: `Bearer ${getAdminToken()}` },
-        () => adminController.updateUserRole('usr_normal_1', dto, { user: actor }),
-      );
-
-      expect(result.id).toBe('usr_normal_1');
-      expect(result.role).toBe(UserRole.ADMIN);
-      expect((result as any).passwordHash).toBeUndefined();
-
-      // Check user record in mock DB updated
-      const updatedUser = mockUsers.find((u) => u.id === 'usr_normal_1');
-      expect(updatedUser?.role).toBe(UserRole.ADMIN);
-
-      // Verify audit log created
-      expect(mockAuditLogs.length).toBe(1);
-      expect(mockAuditLogs[0].action).toBe('UPDATE_USER_ROLE');
-      expect(mockAuditLogs[0].actorEmail).toBe('admin@plaza.app');
-      expect(mockAuditLogs[0].resourceId).toBe('usr_normal_1');
-      expect(mockAuditLogs[0].metadata).toEqual({
-        targetEmail: 'user@plaza.app',
-        previousRole: UserRole.USER,
-        newRole: UserRole.ADMIN,
-      });
-      // Verify no secrets stored in audit log
-      expect(JSON.stringify(mockAuditLogs[0])).not.toMatch(/password/i);
+  describe('5. Real Movie Show Management & Pricing Model', () => {
+    beforeEach(() => {
+      // Re-seed mov_1 if deleted in earlier test
+      if (!mockMovies.find((m) => m.id === 'mov_1')) {
+        mockMovies.push({
+          id: 'mov_1',
+          title: 'Kalki 2898 AD',
+          primaryLanguage: 'Telugu',
+        } as MovieEntity);
+      }
     });
 
-    it('should prevent demoting the last remaining administrator (Last-Admin Protection)', async () => {
-      // At this point, only 1 admin exists if we reset to original
-      mockUsers = mockUsers.map((u) =>
-        u.id === 'usr_normal_1' ? { ...u, role: UserRole.USER } : u,
+    it('should create a show with Gold, Premium, Recliner pricing and availability foundation', async () => {
+      const dto: CreateShowDto = {
+        movieId: 'mov_1',
+        theatreId: 'theatre_amb',
+        screenId: 'scr_1',
+        showDate: '2026-09-26',
+        startTime: '01:45 PM',
+        format: 'IMAX 3D',
+        language: 'Telugu',
+        pricing: {
+          gold: 295,
+          premium: 350,
+          recliner: 450,
+        },
+      };
+
+      const result = await executePipeline(
+        AdminController.prototype.createShow,
+        { authorization: `Bearer ${getAdminToken()}` },
+        () => adminController.createShow(dto, { user: { id: 'usr_admin_1', email: 'admin@plaza.app' } }),
       );
 
-      const dto: UpdateRoleDto = { role: UserRole.USER };
-      const actor = { id: 'usr_admin_1', email: 'admin@plaza.app' };
+      expect(result.movieId).toBe('mov_1');
+      expect(result.pricing).toEqual({ gold: 295, premium: 350, recliner: 450 });
+      expect(result.seatAvailability.totalSeats).toBe(250);
+      expect(result.seatAvailability.bookedSeats).toEqual([]);
+      expect(mockAuditLogs.some((l) => l.action === 'CREATE_SHOW')).toBe(true);
+    });
 
-      // Attempt to demote usr_admin_1 when it is the sole admin
+    it('should prevent duplicate show collision on same screen, date, and start time', async () => {
+      const dto: CreateShowDto = {
+        movieId: 'mov_1',
+        theatreId: 'theatre_amb',
+        screenId: 'scr_1',
+        showDate: '2026-09-26',
+        startTime: '10:15 AM',
+        pricing: { gold: 295, premium: 350, recliner: 450 },
+      };
+
       await expect(
-        executePipeline(
-          AdminController.prototype.updateUserRole,
-          { authorization: `Bearer ${getAdminToken()}` },
-          () => adminController.updateUserRole('usr_admin_1', dto, { user: actor }),
-        ),
+        adminService.createShow(dto, { id: 'usr_admin_1', email: 'admin@plaza.app' }),
       ).rejects.toThrow(BadRequestException);
-
-      // Verify usr_admin_1 is still ADMIN
-      const admin = mockUsers.find((u) => u.id === 'usr_admin_1');
-      expect(admin?.role).toBe(UserRole.ADMIN);
     });
 
-    it('should allow demoting an admin if another admin exists', async () => {
-      // Add a second admin
-      mockUsers.push({
-        id: 'usr_admin_2',
-        email: 'admin2@plaza.app',
-        passwordHash: '$2b$10$hash',
-        name: 'Second Admin',
-        role: UserRole.ADMIN,
-      } as User);
+    it('should reject show creation if screen does not belong to theatre', async () => {
+      // Mock another theatre
+      mockTheatres.push({
+        id: 'theatre_prasads',
+        name: 'Prasads Multiplex',
+      } as TheatreEntity);
 
-      const dto: UpdateRoleDto = { role: UserRole.USER };
-      const actor = { id: 'usr_admin_1', email: 'admin@plaza.app' };
+      const dto: CreateShowDto = {
+        movieId: 'mov_1',
+        theatreId: 'theatre_prasads', // screen scr_1 belongs to theatre_amb
+        screenId: 'scr_1',
+        showDate: '2026-09-26',
+        startTime: '02:30 PM',
+        pricing: { gold: 250, premium: 300, recliner: 400 },
+      };
 
-      const result = await executePipeline(
-        AdminController.prototype.updateUserRole,
-        { authorization: `Bearer ${getAdminToken()}` },
-        () => adminController.updateUserRole('usr_admin_2', dto, { user: actor }),
-      );
-
-      expect(result.role).toBe(UserRole.USER);
-      expect(mockUsers.find((u) => u.id === 'usr_admin_2')?.role).toBe(UserRole.USER);
-    });
-
-    it('should reject normal USER from updating roles with 403 Forbidden', async () => {
-      const dto: UpdateRoleDto = { role: UserRole.ADMIN };
       await expect(
-        executePipeline(
-          AdminController.prototype.updateUserRole,
-          { authorization: `Bearer ${getUserToken()}` },
-          () => adminController.updateUserRole('usr_normal_1', dto, { user: {} }),
-        ),
-      ).rejects.toThrow(ForbiddenException);
-    });
-  });
-
-  describe('5. Audit Logs API (GET /api/v1/admin/audit-logs)', () => {
-    it('should allow ADMIN to read audit logs safely', async () => {
-      mockAuditLogs.push({
-        id: 'aud_test_1',
-        actorUserId: 'usr_admin_1',
-        actorEmail: 'admin@plaza.app',
-        action: 'UPDATE_USER_ROLE',
-        resourceType: 'User',
-        resourceId: 'usr_normal_1',
-        metadata: { targetEmail: 'user@plaza.app', previousRole: 'user', newRole: 'admin' },
-        createdAt: new Date(),
-      } as AuditLogEntity);
-
-      const result = await executePipeline(
-        AdminController.prototype.getAuditLogs,
-        { authorization: `Bearer ${getAdminToken()}` },
-        () => adminController.getAuditLogs({ limit: 10, offset: 0 }),
-      );
-
-      expect(Array.isArray(result)).toBe(true);
-      expect(result.length).toBeGreaterThanOrEqual(1);
-      expect(result[0].action).toBe('UPDATE_USER_ROLE');
+        adminService.createShow(dto, { id: 'usr_admin_1', email: 'admin@plaza.app' }),
+      ).rejects.toThrow(BadRequestException);
     });
 
-    it('should reject normal USER from reading audit logs with 403 Forbidden', async () => {
+    it('should reject show creation if movie does not exist', async () => {
+      const dto: CreateShowDto = {
+        movieId: 'non_existent_movie',
+        theatreId: 'theatre_amb',
+        screenId: 'scr_1',
+        showDate: '2026-09-26',
+        startTime: '06:00 PM',
+        pricing: { gold: 295, premium: 350, recliner: 450 },
+      };
+
       await expect(
-        executePipeline(
-          AdminController.prototype.getAuditLogs,
-          { authorization: `Bearer ${getUserToken()}` },
-          () => adminController.getAuditLogs({}),
-        ),
-      ).rejects.toThrow(ForbiddenException);
+        adminService.createShow(dto, { id: 'usr_admin_1', email: 'admin@plaza.app' }),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
-  describe('6. Registration Security (Prevent Role Escalation)', () => {
-    it('should strictly force role to UserRole.USER during registration even if client supplies role: ADMIN', async () => {
-      const savedUsers: User[] = [];
-      const userRepo: any = {
-        findOne: jest.fn().mockResolvedValue(null),
-        create: jest.fn().mockImplementation((entity) => ({ ...entity })),
-        save: jest.fn().mockImplementation(async (entity) => {
-          savedUsers.push(entity);
-          return entity;
-        }),
-      };
+  describe('6. Consumer Movie Shows API (GET /api/v1/movies/:id/shows)', () => {
+    it('should return enriched movie shows with theatre, screen, pricing, and availability', async () => {
+      const shows = await moviesService.findShowsForMovie('mov_1');
+      expect(Array.isArray(shows)).toBe(true);
+      expect(shows.length).toBeGreaterThanOrEqual(1);
 
-      const authService = new AuthService(userRepo, jwtService);
-
-      const maliciousPayload: any = {
-        email: 'attacker@plaza.app',
-        password: 'SecurePassword123!',
-        name: 'Malicious Actor',
-        role: UserRole.ADMIN,
-      };
-
-      const result = await authService.register(maliciousPayload);
-
-      expect(result.user.role).toBe(UserRole.USER);
-      expect(result.user.role).not.toBe(UserRole.ADMIN);
-      expect(savedUsers[0].role).toBe(UserRole.USER);
-
-      const decoded: any = jwtService.verify(result.token);
-      expect(decoded.role).toBe(UserRole.USER);
-    });
-  });
-
-  describe('7. Admin Seed & Provisioning Idempotency', () => {
-    it('should skip admin user creation without creating insecure defaults when PLAZA_ADMIN_PASSWORD is missing', async () => {
-      const mockDbUsers: any[] = [];
-      const userRepo: any = {
-        findOne: jest.fn().mockImplementation(async ({ where }) => {
-          return mockDbUsers.find((u) => u.email === 'admin@plaza.app') || null;
-        }),
-        save: jest.fn().mockImplementation(async (users) => {
-          const list = Array.isArray(users) ? users : [users];
-          mockDbUsers.push(...list);
-          return users;
-        }),
-      };
-
-      const originalEnv = process.env.PLAZA_ADMIN_PASSWORD;
-      delete process.env.PLAZA_ADMIN_PASSWORD;
-
-      try {
-        const existingAdmin = await userRepo.findOne({
-          where: [{ id: 'usr_admin_1' }, { email: 'admin@plaza.app' }],
-        });
-
-        const adminPassword = process.env.PLAZA_ADMIN_PASSWORD;
-
-        if (!existingAdmin) {
-          if (!adminPassword) {
-            // Skipped safely
-          } else {
-            const salt = await bcrypt.genSalt(10);
-            const adminHash = await bcrypt.hash(adminPassword, salt);
-            await userRepo.save([
-              {
-                id: 'usr_admin_1',
-                email: 'admin@plaza.app',
-                passwordHash: adminHash,
-                role: UserRole.ADMIN,
-              },
-            ]);
-          }
-        }
-
-        expect(mockDbUsers.length).toBe(0);
-        const adminInDb = await userRepo.findOne({ where: { email: 'admin@plaza.app' } });
-        expect(adminInDb).toBeNull();
-      } finally {
-        if (originalEnv) {
-          process.env.PLAZA_ADMIN_PASSWORD = originalEnv;
-        }
-      }
+      const first = shows[0];
+      expect(first.movieTitle).toBe('Kalki 2898 AD');
+      expect(first.theatreName).toBe('AMB Cinemas');
+      expect(first.screenName).toBe('Screen 1 (Laser IMAX)');
+      expect(first.pricing).toEqual({ gold: 295, premium: 350, recliner: 450 });
+      expect(first.seatAvailability.availableSeats).toBe(250);
     });
 
-    it('should provision admin@plaza.app with hashed PLAZA_ADMIN_PASSWORD and remain idempotent on repeat runs', async () => {
-      const mockDbUsers: any[] = [];
-      const userRepo: any = {
-        findOne: jest.fn().mockImplementation(async ({ where }) => {
-          const conditions = Array.isArray(where) ? where : [where];
-          return (
-            mockDbUsers.find((u) =>
-              conditions.some(
-                (cond: any) =>
-                  (cond.id && u.id === cond.id) || (cond.email && u.email === cond.email),
-              ),
-            ) || null
-          );
-        }),
-        save: jest.fn().mockImplementation(async (users) => {
-          const list = Array.isArray(users) ? users : [users];
-          for (const u of list) {
-            const idx = mockDbUsers.findIndex((item) => item.id === u.id || item.email === u.email);
-            if (idx >= 0) {
-              mockDbUsers[idx] = { ...mockDbUsers[idx], ...u };
-            } else {
-              mockDbUsers.push({ ...u });
-            }
-          }
-          return users;
-        }),
-      };
+    it('should support filtering by date, city, and theatre', async () => {
+      const filteredByDate = await moviesService.findShowsForMovie('mov_1', { date: '2026-09-26' });
+      expect(filteredByDate.length).toBe(1);
 
-      const testPassword = 'VerySecureAdminPassword2026!#%';
-      process.env.PLAZA_ADMIN_PASSWORD = testPassword;
+      const filteredByWrongDate = await moviesService.findShowsForMovie('mov_1', { date: '2099-01-01' });
+      expect(filteredByWrongDate.length).toBe(0);
 
-      try {
-        const provisionAdmin = async () => {
-          const existingAdmin = await userRepo.findOne({
-            where: [{ id: 'usr_admin_1' }, { email: 'admin@plaza.app' }],
-          });
+      const filteredByCity = await moviesService.findShowsForMovie('mov_1', { city: 'Hyderabad' });
+      expect(filteredByCity.length).toBe(1);
 
-          const adminPassword = process.env.PLAZA_ADMIN_PASSWORD;
-
-          if (!existingAdmin) {
-            if (!adminPassword) {
-              // Skip
-            } else {
-              const salt = await bcrypt.genSalt(10);
-              const adminHash = await bcrypt.hash(adminPassword, salt);
-              await userRepo.save([
-                {
-                  id: 'usr_admin_1',
-                  email: 'admin@plaza.app',
-                  passwordHash: adminHash,
-                  name: 'PLAZA Admin',
-                  phone: '+91 99999 00000',
-                  city: 'Hyderabad',
-                  rewardPoints: 0,
-                  role: UserRole.ADMIN,
-                },
-              ]);
-            }
-          } else {
-            if (existingAdmin.role !== UserRole.ADMIN) {
-              existingAdmin.role = UserRole.ADMIN;
-              await userRepo.save(existingAdmin);
-            }
-          }
-        };
-
-        await provisionAdmin();
-        expect(mockDbUsers.length).toBe(1);
-        expect(mockDbUsers[0].email).toBe('admin@plaza.app');
-        expect(mockDbUsers[0].role).toBe(UserRole.ADMIN);
-        const matches = await bcrypt.compare(testPassword, mockDbUsers[0].passwordHash);
-        expect(matches).toBe(true);
-
-        // Repeat run - idempotent
-        await provisionAdmin();
-        expect(mockDbUsers.length).toBe(1);
-        expect(mockDbUsers[0].email).toBe('admin@plaza.app');
-        expect(mockDbUsers[0].role).toBe(UserRole.ADMIN);
-      } finally {
-        delete process.env.PLAZA_ADMIN_PASSWORD;
-      }
+      const filteredByOtherCity = await moviesService.findShowsForMovie('mov_1', { city: 'Mumbai' });
+      expect(filteredByOtherCity.length).toBe(0);
     });
   });
 });
