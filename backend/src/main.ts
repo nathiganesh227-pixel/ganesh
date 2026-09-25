@@ -3,12 +3,26 @@ import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { json, urlencoded } from 'express';
+import { DataSource } from 'typeorm';
 import { AppModule } from './app.module';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { runSeed } from './database/seeds/seed';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // Optional database seed on startup if SEED_DATABASE=true
+  if (process.env.SEED_DATABASE === 'true') {
+    console.log('🌱 SEED_DATABASE=true detected: triggering database seed on startup...');
+    try {
+      const dataSource = app.get(DataSource);
+      await runSeed(dataSource);
+      console.log('✅ Database seed completed successfully on startup.');
+    } catch (seedErr) {
+      console.error('⚠️ Startup database seed failed (continuing application startup):', seedErr);
+    }
+  }
 
   // Security Headers via Helmet
   app.use(

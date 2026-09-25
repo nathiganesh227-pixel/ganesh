@@ -1,3 +1,4 @@
+import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { AppDataSource } from '../data-source';
 import { User, UserRole } from '../entities/user.entity';
@@ -14,23 +15,33 @@ import { PlanEntity } from '../entities/plan.entity';
 import { RewardEntity } from '../entities/reward.entity';
 import { NotificationEntity } from '../entities/notification.entity';
 
-export async function runSeed() {
-  console.log('🌱 Connecting to database for comprehensive 7-vertical seed...');
-  if (!AppDataSource.isInitialized) {
-    await AppDataSource.initialize();
-  }
-  console.log('✅ Connected to database.');
+let isSeedingActive = false;
 
-  console.log('🔄 Checking and applying database migrations...');
-  try {
-    const migrations = await AppDataSource.runMigrations();
-    console.log(`✅ Applied ${migrations.length} migration(s).`);
-  } catch (err: any) {
-    console.warn(`⚠️ Migration step notice: ${err?.message || err}`);
+export async function runSeed(customDataSource?: DataSource): Promise<void> {
+  if (isSeedingActive) {
+    console.warn('⚠️ Seeding is already in progress, skipping concurrent execution.');
+    return;
   }
+  isSeedingActive = true;
+  const ds = customDataSource || AppDataSource;
+
+  try {
+    console.log('🌱 Connecting to database for comprehensive 7-vertical seed...');
+    if (!ds.isInitialized) {
+      await ds.initialize();
+    }
+    console.log('✅ Connected to database.');
+
+    console.log('🔄 Checking and applying database migrations...');
+    try {
+      const migrations = await ds.runMigrations();
+      console.log(`✅ Applied ${migrations.length} migration(s).`);
+    } catch (err: any) {
+      console.warn(`⚠️ Migration step notice: ${err?.message || err}`);
+    }
 
   // 1. Users (Idempotent: preserves existing user if already created)
-  const userRepo = AppDataSource.getRepository(User);
+  const userRepo = ds.getRepository(User);
   const existingUser = await userRepo.findOne({
     where: [{ id: 'usr_default_1' }, { email: 'guest@plaza.app' }],
   });
@@ -55,7 +66,7 @@ export async function runSeed() {
   }
 
   // 2. Movies
-  const movieRepo = AppDataSource.getRepository(MovieEntity);
+  const movieRepo = ds.getRepository(MovieEntity);
   await movieRepo.save([
     {
       id: 'mov_1',
@@ -168,7 +179,7 @@ export async function runSeed() {
   ]);
 
   // 3. Theatres & Showtimes
-  const theatreRepo = AppDataSource.getRepository(TheatreEntity);
+  const theatreRepo = ds.getRepository(TheatreEntity);
   await theatreRepo.save([
     {
       id: 'theatre_amb',
@@ -216,7 +227,7 @@ export async function runSeed() {
   ]);
 
   // 4. Dining (Synchronized with rest_1 to rest_5)
-  const diningRepo = AppDataSource.getRepository(RestaurantEntity);
+  const diningRepo = ds.getRepository(RestaurantEntity);
   await diningRepo.save([
     {
       id: 'rest_1',
@@ -370,7 +381,7 @@ export async function runSeed() {
   ]);
 
   // 5. Events (Synchronized with event_1 to event_4)
-  const eventRepo = AppDataSource.getRepository(EventEntity);
+  const eventRepo = ds.getRepository(EventEntity);
   await eventRepo.save([
     {
       id: 'event_1',
@@ -464,7 +475,7 @@ export async function runSeed() {
   ]);
 
   // 6. Activities (Synchronized with act_1 to act_4)
-  const activityRepo = AppDataSource.getRepository(ActivityEntity);
+  const activityRepo = ds.getRepository(ActivityEntity);
   await activityRepo.save([
     {
       id: 'act_1',
@@ -512,7 +523,7 @@ export async function runSeed() {
   ]);
 
   // 7. Shopping (Synchronized with prod_macbook_pro, prod_jordan_retro, etc.)
-  const shoppingRepo = AppDataSource.getRepository(ProductEntity);
+  const shoppingRepo = ds.getRepository(ProductEntity);
   await shoppingRepo.save([
     {
       id: 'prod_macbook_pro',
@@ -581,7 +592,7 @@ export async function runSeed() {
   ]);
 
   // 8. Stays (Synchronized with stay_taj_falaknuma, stay_golkonda_resort, etc.)
-  const hotelRepo = AppDataSource.getRepository(HotelEntity);
+  const hotelRepo = ds.getRepository(HotelEntity);
   await hotelRepo.save([
     {
       id: 'stay_taj_falaknuma',
@@ -638,7 +649,7 @@ export async function runSeed() {
   ]);
 
   // 9. Sports (Synchronized with sports_hotfut_gachibowli, sports_gamepoint_madhapur, etc.)
-  const sportsRepo = AppDataSource.getRepository(SportsVenueEntity);
+  const sportsRepo = ds.getRepository(SportsVenueEntity);
   await sportsRepo.save([
     {
       id: 'sports_hotfut_gachibowli',
@@ -697,7 +708,7 @@ export async function runSeed() {
   ]);
 
   // 10. Unified Bookings (Synchronized with PlazaGlobalState)
-  const bookingRepo = AppDataSource.getRepository(BookingEntity);
+  const bookingRepo = ds.getRepository(BookingEntity);
   await bookingRepo.save([
     {
       id: 'PLZ-MOV-84920',
@@ -750,7 +761,7 @@ export async function runSeed() {
   ]);
 
   // 11. Plans
-  const planRepo = AppDataSource.getRepository(PlanEntity);
+  const planRepo = ds.getRepository(PlanEntity);
   await planRepo.save([
     {
       id: 'pln_sample_1',
@@ -789,7 +800,7 @@ export async function runSeed() {
   ]);
 
   // 12. Rewards (Synchronized with vch_1 to vch_4)
-  const rewardRepo = AppDataSource.getRepository(RewardEntity);
+  const rewardRepo = ds.getRepository(RewardEntity);
   await rewardRepo.save([
     {
       id: 'vch_1',
@@ -816,7 +827,7 @@ export async function runSeed() {
   ]);
 
   // 13. Notifications
-  const notificationRepo = AppDataSource.getRepository(NotificationEntity);
+  const notificationRepo = ds.getRepository(NotificationEntity);
   await notificationRepo.save([
     {
       id: 'notif_1',
@@ -841,6 +852,9 @@ export async function runSeed() {
   ]);
 
   console.log('✅ PLAZA Complete 7-Vertical Database Seeding Completed Successfully!');
+  } finally {
+    isSeedingActive = false;
+  }
 }
 
 if (require.main === module) {
