@@ -21,6 +21,7 @@ import { RewardEntity } from './database/entities/reward.entity';
 import { NotificationEntity } from './database/entities/notification.entity';
 import { WebhookEventEntity } from './database/entities/webhook-event.entity';
 import { IdempotencyRecordEntity } from './database/entities/idempotency-record.entity';
+import { AuditLogEntity } from './database/entities/audit-log.entity';
 
 import { MoviesModule } from './modules/movies/movies.module';
 import { DiningModule } from './modules/dining/dining.module';
@@ -87,6 +88,7 @@ import { AdminModule } from './modules/admin/admin.module';
         NotificationEntity,
         WebhookEventEntity,
         IdempotencyRecordEntity,
+        AuditLogEntity,
       ],
       synchronize:
         process.env.DB_SYNC === 'true' ||

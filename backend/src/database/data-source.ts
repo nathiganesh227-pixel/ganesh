@@ -17,6 +17,7 @@ import { RewardEntity } from './entities/reward.entity';
 import { NotificationEntity } from './entities/notification.entity';
 import { WebhookEventEntity } from './entities/webhook-event.entity';
 import { IdempotencyRecordEntity } from './entities/idempotency-record.entity';
+import { AuditLogEntity } from './entities/audit-log.entity';
 
 dotenv.config();
 
@@ -36,6 +37,7 @@ export const ALL_ENTITIES = [
   NotificationEntity,
   WebhookEventEntity,
   IdempotencyRecordEntity,
+  AuditLogEntity,
 ];
 
 export const AppDataSource = new DataSource(
