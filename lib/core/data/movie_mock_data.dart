@@ -442,6 +442,15 @@ class MovieMockData {
   static List<CinemaSeat> generateSeatGrid(ShowtimeSlot showtime) {
     final List<CinemaSeat> seats = [];
 
+    final reclinerPrice = showtime.pricing?['recliner'] ??
+        showtime.pricing?['vip'] ??
+        (showtime.basePrice + 155);
+    final premiumPrice = showtime.pricing?['premium'] ??
+        showtime.basePrice;
+    final goldPrice = showtime.pricing?['gold'] ??
+        showtime.pricing?['standard'] ??
+        (showtime.basePrice * 0.7).roundToDouble();
+
     // VIP Rows (A, B) - Recliner (Top/Back of theatre)
     final vipRows = ['A', 'B'];
     for (final row in vipRows) {
@@ -455,7 +464,7 @@ class MovieMockData {
             rowLabel: row,
             seatNumber: num,
             tier: SeatTier.vip,
-            price: showtime.basePrice + 155,
+            price: reclinerPrice,
             status: isOccupied ? SeatStatus.occupied : SeatStatus.available,
           ),
         );
@@ -476,7 +485,7 @@ class MovieMockData {
             rowLabel: row,
             seatNumber: num,
             tier: SeatTier.premium,
-            price: showtime.basePrice,
+            price: premiumPrice,
             status: isOccupied ? SeatStatus.occupied : SeatStatus.available,
           ),
         );
@@ -495,7 +504,7 @@ class MovieMockData {
             rowLabel: row,
             seatNumber: num,
             tier: SeatTier.executive,
-            price: (showtime.basePrice * 0.7).roundToDouble(),
+            price: goldPrice,
             status: isOccupied ? SeatStatus.occupied : SeatStatus.available,
           ),
         );

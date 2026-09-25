@@ -55,13 +55,52 @@ class ApiMovieRepository implements MovieRepository {
   }
 
   @override
-  Future<List<Theatre>> getTheatresForMovie(String movieId) async {
+  Future<List<Theatre>> getTheatresForMovie(String movieId, {String? date, String? city}) async {
     try {
+      final queryParams = <String, String>{};
+      if (date != null && date.isNotEmpty) queryParams['date'] = date;
+      if (city != null && city.isNotEmpty) queryParams['city'] = city;
+
       final response = await _client.get<List<Theatre>>(
-        ApiEndpoints.movieShowtimes(movieId),
+        ApiEndpoints.movieShows(movieId),
+        queryParams: queryParams.isNotEmpty ? queryParams : null,
         fromJson: (json) {
           if (json is List) {
-            return json.map((item) => Theatre.fromJson(item as Map<String, dynamic>)).toList();
+            // Group shows by theatreId
+            final Map<String, List<ShowtimeSlot>> theatreShowsMap = {};
+            final Map<String, Map<String, dynamic>> theatreMetaMap = {};
+
+            for (final item in json) {
+              if (item is! Map<String, dynamic>) continue;
+              final tId = item['theatreId'] as String? ?? 'theatre_default';
+              final slot = ShowtimeSlot.fromJson(item);
+
+              theatreShowsMap.putIfAbsent(tId, () => []).add(slot);
+              theatreMetaMap.putIfAbsent(tId, () => {
+                'id': tId,
+                'name': item['theatreName'] ?? 'PLAZA Cinema',
+                'location': item['theatreLocation'] ?? '',
+                'city': item['theatreCity'] ?? 'Hyderabad',
+              });
+            }
+
+            final List<Theatre> result = [];
+            theatreShowsMap.forEach((tId, slots) {
+              final meta = theatreMetaMap[tId]!;
+              result.add(
+                Theatre(
+                  id: tId,
+                  name: meta['name'] as String,
+                  location: meta['location'] as String,
+                  city: meta['city'] as String,
+                  distance: '2.5 km',
+                  amenities: const ['Dolby Atmos', '4K Laser Projection', 'Recliners'],
+                  showtimes: slots,
+                ),
+              );
+            });
+
+            return result;
           }
           return [];
         },
@@ -73,7 +112,7 @@ class ApiMovieRepository implements MovieRepository {
     } catch (_) {
       // Fallback
     }
-    return _fallback.getTheatresForMovie(movieId);
+    return _fallback.getTheatresForMovie(movieId, date: date, city: city);
   }
 
   @override

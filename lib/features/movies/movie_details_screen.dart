@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_gradients.dart';
 import '../../core/constants/app_typography.dart';
+import '../../core/data/plaza_global_state.dart';
 import '../../core/models/movie.dart';
 import '../../core/widgets/glass_button.dart';
 import '../../core/widgets/glass_card.dart';
@@ -179,26 +180,88 @@ class _MovieDetailsScreenState extends State<MovieDetailsScreen> {
                                 ),
                               ),
                             ),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(14),
-                              child: BackdropFilter(
-                                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                                child: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.glassFillMedium,
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ListenableBuilder(
+                                  listenable: PlazaGlobalState.instance,
+                                  builder: (context, _) {
+                                    final isFav = PlazaGlobalState.instance.isFavorite(movie.id);
+                                    return GestureDetector(
+                                      onTap: () {
+                                        PlazaGlobalState.instance.toggleFavorite(movie.id);
+                                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              isFav
+                                                  ? 'Removed ${movie.title} from favorites'
+                                                  : 'Added ${movie.title} to favorites',
+                                            ),
+                                            duration: const Duration(seconds: 1),
+                                            behavior: SnackBarBehavior.floating,
+                                          ),
+                                        );
+                                      },
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(14),
+                                        child: BackdropFilter(
+                                          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                                          child: Container(
+                                            padding: const EdgeInsets.all(8),
+                                            decoration: BoxDecoration(
+                                              color: AppColors.glassFillMedium,
+                                              borderRadius: BorderRadius.circular(14),
+                                              border: Border.all(
+                                                color: isFav
+                                                    ? AppColors.alertRed.withValues(alpha: 0.5)
+                                                    : AppColors.glassBorderSubtle,
+                                              ),
+                                            ),
+                                            child: Icon(
+                                              isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                                              size: 18,
+                                              color: isFav ? AppColors.alertRed : AppColors.textPrimary,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                                const SizedBox(width: 8),
+                                GestureDetector(
+                                  onTap: () {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Sharing link for ${movie.title}...'),
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
+                                    );
+                                  },
+                                  child: ClipRRect(
                                     borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(
-                                      color: AppColors.glassBorderSubtle,
+                                    child: BackdropFilter(
+                                      filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.glassFillMedium,
+                                          borderRadius: BorderRadius.circular(14),
+                                          border: Border.all(
+                                            color: AppColors.glassBorderSubtle,
+                                          ),
+                                        ),
+                                        child: const Icon(
+                                          Icons.share_outlined,
+                                          size: 18,
+                                          color: AppColors.textPrimary,
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                  child: const Icon(
-                                    Icons.share_outlined,
-                                    size: 18,
-                                    color: AppColors.textPrimary,
-                                  ),
                                 ),
-                              ),
+                              ],
                             ),
                           ],
                         ),
@@ -206,63 +269,64 @@ class _MovieDetailsScreenState extends State<MovieDetailsScreen> {
                     ),
 
                     // Play Trailer Center Floating Button
-                    Positioned(
-                      top: 190,
-                      left: 0,
-                      right: 0,
-                      child: Center(
-                        child: GestureDetector(
-                          onTap: _showTrailerDialog,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(999),
-                            child: BackdropFilter(
-                              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                                decoration: BoxDecoration(
-                                  color: const Color(0x60000000),
-                                  borderRadius: BorderRadius.circular(999),
-                                  border: Border.all(
-                                    color: const Color(0x60FFFFFF),
-                                    width: 1.0,
+                    if (movie.trailerYoutubeId.isNotEmpty)
+                      Positioned(
+                        top: 190,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: GestureDetector(
+                            onTap: _showTrailerDialog,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(999),
+                              child: BackdropFilter(
+                                filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0x60000000),
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(
+                                      color: const Color(0x60FFFFFF),
+                                      width: 1.0,
+                                    ),
+                                    boxShadow: const [
+                                      BoxShadow(
+                                        color: Color(0x40000000),
+                                        blurRadius: 20,
+                                      ),
+                                    ],
                                   ),
-                                  boxShadow: const [
-                                    BoxShadow(
-                                      color: Color(0x40000000),
-                                      blurRadius: 20,
-                                    ),
-                                  ],
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(4),
-                                      decoration: const BoxDecoration(
-                                        gradient: AppGradients.sunsetPrimary,
-                                        shape: BoxShape.circle,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: const BoxDecoration(
+                                          gradient: AppGradients.sunsetPrimary,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.play_arrow_rounded,
+                                          size: 16,
+                                          color: Colors.white,
+                                        ),
                                       ),
-                                      child: const Icon(
-                                        Icons.play_arrow_rounded,
-                                        size: 16,
-                                        color: Colors.white,
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Watch Trailer',
+                                        style: AppTypography.labelMedium.copyWith(
+                                          color: Colors.white,
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'Watch Trailer',
-                                      style: AppTypography.labelMedium.copyWith(
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
 
                     // Movie Info Card Overlap
                     Positioned(
@@ -561,41 +625,86 @@ class _MovieDetailsScreenState extends State<MovieDetailsScreen> {
                       ),
                     ],
                   ),
-                  child: Row(
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
+                  child: Builder(
+                    builder: (context) {
+                      final isComingSoonOnly = movie.isComingSoon && !movie.isNowShowing;
+                      if (isComingSoonOnly) {
+                        return Row(
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('STATUS', style: AppTypography.labelSmall),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Releasing Soon',
+                                  style: AppTypography.labelMedium.copyWith(
+                                    color: AppColors.textSecondary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(width: 20),
+                            Expanded(
+                              child: GlassButton(
+                                text: 'Advance Booking Soon',
+                                icon: Icons.notifications_active_outlined,
+                                variant: GlassButtonVariant.secondary,
+                                height: 52,
+                                onPressed: () {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Advance bookings for ${movie.title} will open soon! We\'ll notify you.'),
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        );
+                      }
+
+                      final startingPrice = movie.startingPrice > 0 ? movie.startingPrice.toInt() : 150;
+                      return Row(
                         children: [
-                          Text('TICKETS FROM', style: AppTypography.labelSmall),
-                          const SizedBox(height: 2),
-                          Text(
-                            '₹${movie.startingPrice.toInt()}',
-                            style: AppTypography.priceTag.copyWith(
-                              fontSize: 22,
-                              color: AppColors.accentAmber,
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('TICKETS FROM', style: AppTypography.labelSmall),
+                              const SizedBox(height: 2),
+                              Text(
+                                '₹$startingPrice',
+                                style: AppTypography.priceTag.copyWith(
+                                  fontSize: 22,
+                                  color: AppColors.accentAmber,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(width: 20),
+                          Expanded(
+                            child: GlassButton(
+                              text: 'Book Tickets',
+                              icon: Icons.confirmation_number_rounded,
+                              variant: GlassButtonVariant.primary,
+                              height: 52,
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ShowtimeSelectionScreen(movie: movie),
+                                  ),
+                                );
+                              },
                             ),
                           ),
                         ],
-                      ),
-                      const SizedBox(width: 20),
-                      Expanded(
-                        child: GlassButton(
-                          text: 'Book Tickets',
-                          icon: Icons.confirmation_number_rounded,
-                          variant: GlassButtonVariant.primary,
-                          height: 52,
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => ShowtimeSelectionScreen(movie: movie),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
                 ),
               ),

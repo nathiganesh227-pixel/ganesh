@@ -2,19 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_typography.dart';
-import '../../core/data/movie_mock_data.dart';
+import '../../core/data/plaza_global_state.dart';
 import '../../core/models/cinema_showtime.dart';
 import '../../core/models/movie.dart';
+import '../../core/repositories/api_movie_repository.dart';
+import '../../core/repositories/movie_repository.dart';
+import '../../core/widgets/glass_button.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/glass_pill.dart';
 import 'seat_selection_screen.dart';
 
 class ShowtimeSelectionScreen extends StatefulWidget {
   final Movie movie;
+  final MovieRepository? repository;
 
   const ShowtimeSelectionScreen({
     super.key,
     required this.movie,
+    this.repository,
   });
 
   @override
@@ -22,22 +27,60 @@ class ShowtimeSelectionScreen extends StatefulWidget {
 }
 
 class _ShowtimeSelectionScreenState extends State<ShowtimeSelectionScreen> {
+  late final MovieRepository _repository;
   late DateTime _selectedDate;
   late List<DateTime> _dates;
   MovieFormat? _selectedFormatFilter;
 
+  List<Theatre> _theatres = [];
+  bool _isLoading = true;
+  String? _errorMessage;
+
   @override
   void initState() {
     super.initState();
+    _repository = widget.repository ?? ApiMovieRepository();
     final now = DateTime.now();
     _selectedDate = DateTime(now.year, now.month, now.day);
     _dates = List.generate(7, (i) => _selectedDate.add(Duration(days: i)));
+    _loadShowtimes();
+  }
+
+  Future<void> _loadShowtimes() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
+      final city = PlazaGlobalState.instance.selectedCity;
+      final results = await _repository.getTheatresForMovie(
+        widget.movie.id,
+        date: dateStr,
+        city: city,
+      );
+
+      if (mounted) {
+        setState(() {
+          _theatres = results;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Unable to load showtimes. Please try again.';
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final movie = widget.movie;
-    final theatres = MovieMockData.getTheatresForMovie(movie.id);
+    final currentCity = PlazaGlobalState.instance.selectedCity;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -70,8 +113,11 @@ class _ShowtimeSelectionScreenState extends State<ShowtimeSelectionScreen> {
               overflow: TextOverflow.ellipsis,
             ),
             Text(
-              '${movie.primaryLanguage.label} • ${movie.certificate} • ${movie.duration}',
-              style: AppTypography.bodySmall.copyWith(fontSize: 11),
+              '$currentCity • ${movie.primaryLanguage.label} • ${movie.certificate} • ${movie.duration}',
+              style: AppTypography.bodySmall.copyWith(
+                fontSize: 11,
+                color: AppColors.textSecondary,
+              ),
             ),
           ],
         ),
@@ -91,14 +137,18 @@ class _ShowtimeSelectionScreenState extends State<ShowtimeSelectionScreen> {
               itemBuilder: (context, index) {
                 final date = _dates[index];
                 final isSelected = date.day == _selectedDate.day &&
-                    date.month == _selectedDate.month;
+                    date.month == _selectedDate.month &&
+                    date.year == _selectedDate.year;
                 final isToday = index == 0;
 
                 return GestureDetector(
                   onTap: () {
-                    setState(() {
-                      _selectedDate = date;
-                    });
+                    if (!isSelected) {
+                      setState(() {
+                        _selectedDate = date;
+                      });
+                      _loadShowtimes();
+                    }
                   },
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
@@ -188,31 +238,143 @@ class _ShowtimeSelectionScreenState extends State<ShowtimeSelectionScreen> {
           const SizedBox(height: 12),
           const Divider(color: Color(0x15FFFFFF), height: 1),
 
-          // Theatres and Showtimes List
+          // Theatres and Showtimes Content Area
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              physics: const BouncingScrollPhysics(),
-              itemCount: theatres.length,
-              itemBuilder: (context, index) {
-                final theatre = theatres[index];
-                final availableShowtimes = theatre.showtimes.where((st) {
-                  if (_selectedFormatFilter != null &&
-                      st.format != _selectedFormatFilter) {
-                    return false;
-                  }
-                  return true;
-                }).toList();
-
-                if (availableShowtimes.isEmpty) {
-                  return const SizedBox.shrink();
-                }
-
-                return _buildTheatreCard(theatre, availableShowtimes);
-              },
-            ),
+            child: _buildShowtimesContent(),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildShowtimesContent() {
+    if (_isLoading) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+            ),
+            SizedBox(height: 16),
+            Text(
+              'Finding best theatres & showtimes...',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline_rounded, size: 44, color: AppColors.alertRed),
+              const SizedBox(height: 12),
+              Text(
+                _errorMessage!,
+                style: AppTypography.bodyMedium.copyWith(color: AppColors.textSecondary),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              GlassButton(
+                text: 'Try Again',
+                icon: Icons.refresh_rounded,
+                variant: GlassButtonVariant.secondary,
+                onPressed: _loadShowtimes,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final filteredTheatres = _theatres.where((theatre) {
+      final availableShowtimes = theatre.showtimes.where((st) {
+        if (_selectedFormatFilter != null && st.format != _selectedFormatFilter) {
+          return false;
+        }
+        return true;
+      }).toList();
+      return availableShowtimes.isNotEmpty;
+    }).toList();
+
+    if (filteredTheatres.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _loadShowtimes,
+        color: AppColors.primary,
+        backgroundColor: AppColors.surfaceElevated,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+          children: [
+            const SizedBox(height: 80),
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: AppColors.glassFillMedium,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.glassBorderSubtle),
+                ),
+                child: const Icon(
+                  Icons.theaters_outlined,
+                  size: 44,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'No Shows Scheduled',
+              style: AppTypography.headingMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 40),
+              child: Text(
+                'No screenings available on ${DateFormat('EEE, d MMM').format(_selectedDate)} in ${PlazaGlobalState.instance.selectedCity}. Try another date or city.',
+                style: AppTypography.bodyMedium.copyWith(color: AppColors.textSecondary),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Center(
+              child: GlassButton(
+                text: 'Refresh Showtimes',
+                icon: Icons.refresh_rounded,
+                variant: GlassButtonVariant.secondary,
+                onPressed: _loadShowtimes,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadShowtimes,
+      color: AppColors.primary,
+      backgroundColor: AppColors.surfaceElevated,
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+        itemCount: filteredTheatres.length,
+        itemBuilder: (context, index) {
+          final theatre = filteredTheatres[index];
+          final availableShowtimes = theatre.showtimes.where((st) {
+            if (_selectedFormatFilter != null && st.format != _selectedFormatFilter) {
+              return false;
+            }
+            return true;
+          }).toList();
+
+          return _buildTheatreCard(theatre, availableShowtimes);
+        },
       ),
     );
   }
@@ -329,20 +491,48 @@ class _ShowtimeSelectionScreenState extends State<ShowtimeSelectionScreen> {
   }
 
   Widget _buildShowtimePill(Theatre theatre, ShowtimeSlot slot) {
+    final isSoldOut = slot.isSoldOut;
+    final isAlmostFull = slot.isAlmostFull;
+    final isFillingFast = slot.isFillingFast;
+
     Color borderColor = AppColors.glassBorderSubtle;
     Color timeColor = AppColors.textPrimary;
     String statusNote = '';
+    Color statusColor = AppColors.textMuted;
 
-    if (slot.isAlmostFull) {
-      borderColor = const Color(0x60EF4444);
+    if (isSoldOut) {
+      borderColor = AppColors.alertRed.withValues(alpha: 0.35);
+      timeColor = AppColors.textMuted;
+      statusNote = 'Sold Out';
+      statusColor = AppColors.alertRed;
+    } else if (isAlmostFull) {
+      borderColor = AppColors.warningOrange.withValues(alpha: 0.6);
       statusNote = 'Almost Full';
-    } else if (slot.isFillingFast) {
-      borderColor = const Color(0x60F59E0B);
+      statusColor = AppColors.warningOrange;
+    } else if (isFillingFast) {
+      borderColor = AppColors.accentAmber.withValues(alpha: 0.6);
       statusNote = 'Filling Fast';
+      statusColor = AppColors.accentAmber;
     }
+
+    // Server pricing lowest display
+    final lowestPrice = slot.pricing?['gold']?.toInt() ??
+        slot.pricing?['standard']?.toInt() ??
+        slot.basePrice.toInt();
 
     return GestureDetector(
       onTap: () {
+        if (isSoldOut) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('This show is sold out. Please select another showtime.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          return;
+        }
+
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -355,19 +545,22 @@ class _ShowtimeSelectionScreenState extends State<ShowtimeSelectionScreen> {
           ),
         );
       },
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: const Color(0x20FFFFFF),
+          color: isSoldOut ? const Color(0x0CFFFFFF) : const Color(0x20FFFFFF),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: borderColor, width: 1.0),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x15000000),
-              blurRadius: 8,
-              offset: Offset(0, 2),
-            ),
-          ],
+          boxShadow: isSoldOut
+              ? null
+              : const [
+                  BoxShadow(
+                    color: Color(0x15000000),
+                    blurRadius: 8,
+                    offset: Offset(0, 2),
+                  ),
+                ],
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -381,22 +574,36 @@ class _ShowtimeSelectionScreenState extends State<ShowtimeSelectionScreen> {
               ),
             ),
             const SizedBox(height: 2),
-            Text(
-              slot.format.label,
-              style: AppTypography.labelSmall.copyWith(
-                color: AppColors.primaryLight,
-                fontSize: 9,
-                fontWeight: FontWeight.w600,
-              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  slot.format.label,
+                  style: AppTypography.labelSmall.copyWith(
+                    color: isSoldOut ? AppColors.textMuted : AppColors.primaryLight,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '• ₹$lowestPrice',
+                  style: AppTypography.labelSmall.copyWith(
+                    color: isSoldOut ? AppColors.textMuted : AppColors.accentGold,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
             if (statusNote.isNotEmpty) ...[
-              const SizedBox(height: 2),
+              const SizedBox(height: 3),
               Text(
                 statusNote,
                 style: AppTypography.bodySmall.copyWith(
                   fontSize: 8,
-                  color: slot.isAlmostFull ? AppColors.alertRed : AppColors.accentAmber,
-                  fontWeight: FontWeight.w600,
+                  color: statusColor,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ],

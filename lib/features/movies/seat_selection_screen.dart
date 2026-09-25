@@ -254,11 +254,19 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
   }
 
   Widget _buildTierSection(String title, SeatTier tier, List<String> rows) {
-    final tierPrice = tier == SeatTier.vip
-        ? (widget.showtime.basePrice + 155)
-        : (tier == SeatTier.premium
-            ? widget.showtime.basePrice
-            : (widget.showtime.basePrice * 0.7).roundToDouble());
+    final double tierPrice;
+    if (tier == SeatTier.vip) {
+      tierPrice = widget.showtime.pricing?['recliner'] ??
+          widget.showtime.pricing?['vip'] ??
+          (widget.showtime.basePrice + 155);
+    } else if (tier == SeatTier.premium) {
+      tierPrice = widget.showtime.pricing?['premium'] ??
+          widget.showtime.basePrice;
+    } else {
+      tierPrice = widget.showtime.pricing?['gold'] ??
+          widget.showtime.pricing?['standard'] ??
+          (widget.showtime.basePrice * 0.7).roundToDouble();
+    }
 
     return Column(
       children: [

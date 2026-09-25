@@ -50,6 +50,17 @@ class PlazaGlobalState extends ChangeNotifier {
   final List<RewardTransaction> _rewardTransactions = [];
   final List<PlazaNotification> _notifications = [];
 
+  // Active city
+  String _selectedCity = 'Hyderabad';
+  String get selectedCity => _selectedCity;
+
+  void setSelectedCity(String city) {
+    if (_selectedCity != city) {
+      _selectedCity = city;
+      notifyListeners();
+    }
+  }
+
   // Getters
   List<UnifiedBooking> get bookings => List.unmodifiable(_bookings);
   List<PlazaPlan> get savedPlans => List.unmodifiable(_savedPlans);

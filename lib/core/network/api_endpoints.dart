@@ -4,6 +4,7 @@ class ApiEndpoints {
   static const String movies = '/movies';
   static String movieDetails(String id) => '/movies/$id';
   static String movieShowtimes(String id) => '/movies/$id/showtimes';
+  static String movieShows(String id) => '/movies/$id/shows';
 
   // Dining
   static const String dining = '/dining';

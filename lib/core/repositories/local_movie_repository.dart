@@ -21,7 +21,7 @@ class LocalMovieRepository implements MovieRepository {
   }
 
   @override
-  Future<List<Theatre>> getTheatresForMovie(String movieId) async {
+  Future<List<Theatre>> getTheatresForMovie(String movieId, {String? date, String? city}) async {
     return MovieMockData.getTheatresForMovie(movieId);
   }
 
