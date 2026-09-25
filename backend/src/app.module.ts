@@ -36,6 +36,7 @@ import { RewardsModule } from './modules/rewards/rewards.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { SearchModule } from './modules/search/search.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -109,6 +110,7 @@ import { AuthModule } from './modules/auth/auth.module';
     NotificationsModule,
     SearchModule,
     AuthModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [

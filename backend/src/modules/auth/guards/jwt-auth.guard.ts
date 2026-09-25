@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException, CanActivate, ExecutionContext } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { UserRole } from '../../../database/entities/user.entity';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -7,15 +8,10 @@ export class JwtAuthGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
-    const authHeader = request.headers.authorization;
+    const authHeader = request.headers?.authorization;
 
     if (!authHeader) {
-      if (process.env.NODE_ENV === 'production') {
-        throw new UnauthorizedException('Authentication token is required');
-      }
-      // For development, allow fallback to demo user if no header is supplied
-      request.user = { id: 'usr_default_1', sub: 'usr_default_1', email: 'guest@plaza.app', name: 'Gopi Ganesh' };
-      return true;
+      throw new UnauthorizedException('Authentication token is required');
     }
 
     const [bearer, token] = authHeader.split(' ');
@@ -29,6 +25,7 @@ export class JwtAuthGuard implements CanActivate {
         ...payload,
         id: payload.sub || payload.id,
         sub: payload.sub || payload.id,
+        role: payload.role || UserRole.USER,
       };
       return true;
     } catch {

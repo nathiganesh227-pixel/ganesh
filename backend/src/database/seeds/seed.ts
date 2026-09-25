@@ -65,6 +65,43 @@ export async function runSeed(customDataSource?: DataSource): Promise<void> {
     console.log(`  -> Demo user already present (${existingUser.email}), preserved.`);
   }
 
+  // 1b. Admin User (Idempotent: provisions admin@plaza.app with UserRole.ADMIN)
+  const existingAdmin = await userRepo.findOne({
+    where: [{ id: 'usr_admin_1' }, { email: 'admin@plaza.app' }],
+  });
+
+  const adminPassword = process.env.PLAZA_ADMIN_PASSWORD;
+
+  if (!existingAdmin) {
+    if (!adminPassword) {
+      console.warn('⚠️ PLAZA_ADMIN_PASSWORD is not set. Skipping admin user creation to avoid insecure defaults.');
+    } else {
+      const salt = await bcrypt.genSalt(10);
+      const adminHash = await bcrypt.hash(adminPassword, salt);
+      await userRepo.save([
+        {
+          id: 'usr_admin_1',
+          email: 'admin@plaza.app',
+          passwordHash: adminHash,
+          name: 'PLAZA Admin',
+          phone: '+91 99999 00000',
+          city: 'Hyderabad',
+          rewardPoints: 0,
+          role: UserRole.ADMIN,
+        },
+      ]);
+      console.log('  -> Seeded admin user: usr_admin_1 (admin@plaza.app) with role: ADMIN');
+    }
+  } else {
+    if (existingAdmin.role !== UserRole.ADMIN) {
+      existingAdmin.role = UserRole.ADMIN;
+      await userRepo.save(existingAdmin);
+      console.log(`  -> Existing user (${existingAdmin.email}) upgraded to role: ADMIN.`);
+    } else {
+      console.log(`  -> Admin user already present (${existingAdmin.email}), preserved.`);
+    }
+  }
+
   // 2. Movies
   const movieRepo = ds.getRepository(MovieEntity);
   await movieRepo.save([
