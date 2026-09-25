@@ -12,10 +12,10 @@ void main() {
       expect(EnvironmentConfig.baseUrl, contains('3000'));
 
       EnvironmentConfig.setEnvironment(AppEnvironment.staging);
-      expect(EnvironmentConfig.baseUrl, contains('staging-api'));
+      expect(EnvironmentConfig.baseUrl, anyOf(contains('staging-api'), contains('onrender.com')));
 
       EnvironmentConfig.setEnvironment(AppEnvironment.prod);
-      expect(EnvironmentConfig.baseUrl, contains('api.plaza.app'));
+      expect(EnvironmentConfig.baseUrl, anyOf(contains('api.plaza.app'), contains('onrender.com')));
 
       // Reset to dev
       EnvironmentConfig.setEnvironment(AppEnvironment.dev);

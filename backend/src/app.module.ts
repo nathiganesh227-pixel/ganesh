@@ -52,7 +52,13 @@ import { AuthModule } from './modules/auth/auth.module';
         ? {
             url: process.env.DATABASE_URL,
             ssl:
-              process.env.DB_SSL === 'true' || process.env.DATABASE_URL?.includes('sslmode=require')
+              process.env.DB_SSL === 'false'
+                ? false
+                : process.env.DB_SSL === 'true' ||
+                  process.env.NODE_ENV === 'production' ||
+                  process.env.DATABASE_URL.includes('render.com') ||
+                  process.env.DATABASE_URL.includes('sslmode=require') ||
+                  Boolean(process.env.RENDER)
                 ? { rejectUnauthorized: false }
                 : false,
           }
@@ -81,9 +87,13 @@ import { AuthModule } from './modules/auth/auth.module';
         WebhookEventEntity,
         IdempotencyRecordEntity,
       ],
-      synchronize: process.env.NODE_ENV !== 'production' && process.env.DB_SYNC === 'true',
+      synchronize:
+        process.env.DB_SYNC === 'true' ||
+        (process.env.NODE_ENV !== 'production' && !process.env.DATABASE_URL),
       migrations: [__dirname + '/database/migrations/*{.ts,.js}'],
-      migrationsRun: process.env.DB_MIGRATIONS_RUN === 'true',
+      migrationsRun:
+        process.env.DB_MIGRATIONS_RUN === 'true' ||
+        (Boolean(process.env.DATABASE_URL) && process.env.DB_MIGRATIONS_RUN !== 'false'),
     }),
     MoviesModule,
     DiningModule,
