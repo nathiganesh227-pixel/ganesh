@@ -25,9 +25,9 @@ export class MoviesService {
       const all = await this.movieRepo.find();
       return all.filter(
         (m) =>
-          m.title.toLowerCase().includes(q) ||
-          m.director.toLowerCase().includes(q) ||
-          m.genres.some((g) => g.toLowerCase().includes(q)),
+          m.title?.toLowerCase().includes(q) ||
+          m.director?.toLowerCase().includes(q) ||
+          m.genres?.some((g) => g.toLowerCase().includes(q)),
       );
     }
     return this.movieRepo.find();

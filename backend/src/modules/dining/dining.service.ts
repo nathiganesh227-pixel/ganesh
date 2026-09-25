@@ -11,15 +11,15 @@ export class DiningService {
   ) {}
 
   async findAll(cuisine?: string): Promise<RestaurantEntity[]> {
+    const list = await this.repo.find({ where: { isPublished: true } });
     if (cuisine) {
-      const all = await this.repo.find();
-      return all.filter((r) => r.cuisines.some((c) => c.toLowerCase().includes(cuisine.toLowerCase())));
+      return list.filter((r) => r.cuisines.some((c) => c.toLowerCase().includes(cuisine.toLowerCase())));
     }
-    return this.repo.find();
+    return list;
   }
 
   async findOne(id: string): Promise<RestaurantEntity> {
-    const restaurant = await this.repo.findOne({ where: { id } });
+    const restaurant = await this.repo.findOne({ where: { id, isPublished: true } });
     if (!restaurant) throw new NotFoundException(`Restaurant with ID ${id} not found`);
     return restaurant;
   }

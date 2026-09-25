@@ -70,6 +70,9 @@ export class ProductEntity {
   @Column({ default: true })
   inStock: boolean;
 
+  @Column({ default: true })
+  isPublished: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

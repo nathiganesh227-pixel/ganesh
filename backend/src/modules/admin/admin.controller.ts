@@ -27,6 +27,20 @@ import {
   CreateShowDto,
   UpdateShowDto,
 } from './dto/movie-show.dto';
+import {
+  CreateDiningDto,
+  UpdateDiningDto,
+  CreateEventDto,
+  UpdateEventDto,
+  CreateActivityDto,
+  UpdateActivityDto,
+  CreateProductDto,
+  UpdateProductDto,
+  CreateHotelDto,
+  UpdateHotelDto,
+  CreateSportsVenueDto,
+  UpdateSportsVenueDto,
+} from './dto/vertical-catalog.dto';
 
 @ApiTags('admin')
 @Controller('admin')
@@ -205,6 +219,288 @@ export class AdminController {
   @ApiOperation({ summary: 'Delete or cancel a showtime slot' })
   async deleteShow(@Param('id') id: string, @Request() req: any) {
     return this.adminService.deleteShow(id, req.user);
+  }
+
+  // ---------------- DINING MANAGEMENT ----------------
+  @Get('dining')
+  @ApiOperation({ summary: 'List all dining restaurants (admin view)' })
+  async getDining(@Query() query: PaginationQueryDto) {
+    return this.adminService.getDining(query.limit, query.offset);
+  }
+
+  @Get('dining/:id')
+  @ApiOperation({ summary: 'Get restaurant by ID' })
+  async getDiningById(@Param('id') id: string) {
+    return this.adminService.getDiningById(id);
+  }
+
+  @Post('dining')
+  @ApiOperation({ summary: 'Create a new restaurant entry' })
+  async createDining(@Body() dto: CreateDiningDto, @Request() req: any) {
+    return this.adminService.createDining(dto, req.user);
+  }
+
+  @Patch('dining/:id')
+  @ApiOperation({ summary: 'Update restaurant details' })
+  async updateDining(
+    @Param('id') id: string,
+    @Body() dto: UpdateDiningDto,
+    @Request() req: any,
+  ) {
+    return this.adminService.updateDining(id, dto, req.user);
+  }
+
+  @Delete('dining/:id')
+  @ApiOperation({ summary: 'Delete a restaurant entry' })
+  async deleteDining(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.deleteDining(id, req.user);
+  }
+
+  @Patch('dining/:id/publish')
+  @ApiOperation({ summary: 'Publish a restaurant entry' })
+  async publishDining(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.publishDining(id, req.user);
+  }
+
+  @Patch('dining/:id/unpublish')
+  @ApiOperation({ summary: 'Unpublish a restaurant entry' })
+  async unpublishDining(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.unpublishDining(id, req.user);
+  }
+
+  // ---------------- EVENTS MANAGEMENT ----------------
+  @Get('events')
+  @ApiOperation({ summary: 'List all events (admin view)' })
+  async getEvents(@Query() query: PaginationQueryDto) {
+    return this.adminService.getEvents(query.limit, query.offset);
+  }
+
+  @Get('events/:id')
+  @ApiOperation({ summary: 'Get event by ID' })
+  async getEventById(@Param('id') id: string) {
+    return this.adminService.getEventById(id);
+  }
+
+  @Post('events')
+  @ApiOperation({ summary: 'Create a new event' })
+  async createEvent(@Body() dto: CreateEventDto, @Request() req: any) {
+    return this.adminService.createEvent(dto, req.user);
+  }
+
+  @Patch('events/:id')
+  @ApiOperation({ summary: 'Update event details' })
+  async updateEvent(
+    @Param('id') id: string,
+    @Body() dto: UpdateEventDto,
+    @Request() req: any,
+  ) {
+    return this.adminService.updateEvent(id, dto, req.user);
+  }
+
+  @Delete('events/:id')
+  @ApiOperation({ summary: 'Delete an event' })
+  async deleteEvent(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.deleteEvent(id, req.user);
+  }
+
+  @Patch('events/:id/publish')
+  @ApiOperation({ summary: 'Publish an event' })
+  async publishEvent(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.publishEvent(id, req.user);
+  }
+
+  @Patch('events/:id/unpublish')
+  @ApiOperation({ summary: 'Unpublish an event' })
+  async unpublishEvent(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.unpublishEvent(id, req.user);
+  }
+
+  // ---------------- ACTIVITIES MANAGEMENT ----------------
+  @Get('activities')
+  @ApiOperation({ summary: 'List all activities (admin view)' })
+  async getActivities(@Query() query: PaginationQueryDto) {
+    return this.adminService.getActivities(query.limit, query.offset);
+  }
+
+  @Get('activities/:id')
+  @ApiOperation({ summary: 'Get activity by ID' })
+  async getActivityById(@Param('id') id: string) {
+    return this.adminService.getActivityById(id);
+  }
+
+  @Post('activities')
+  @ApiOperation({ summary: 'Create a new activity' })
+  async createActivity(@Body() dto: CreateActivityDto, @Request() req: any) {
+    return this.adminService.createActivity(dto, req.user);
+  }
+
+  @Patch('activities/:id')
+  @ApiOperation({ summary: 'Update activity details' })
+  async updateActivity(
+    @Param('id') id: string,
+    @Body() dto: UpdateActivityDto,
+    @Request() req: any,
+  ) {
+    return this.adminService.updateActivity(id, dto, req.user);
+  }
+
+  @Delete('activities/:id')
+  @ApiOperation({ summary: 'Delete an activity' })
+  async deleteActivity(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.deleteActivity(id, req.user);
+  }
+
+  @Patch('activities/:id/publish')
+  @ApiOperation({ summary: 'Publish an activity' })
+  async publishActivity(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.publishActivity(id, req.user);
+  }
+
+  @Patch('activities/:id/unpublish')
+  @ApiOperation({ summary: 'Unpublish an activity' })
+  async unpublishActivity(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.unpublishActivity(id, req.user);
+  }
+
+  // ---------------- SHOPPING MANAGEMENT ----------------
+  @Get('shopping')
+  @ApiOperation({ summary: 'List all shopping products (admin view)' })
+  async getProducts(@Query() query: PaginationQueryDto) {
+    return this.adminService.getProducts(query.limit, query.offset);
+  }
+
+  @Get('shopping/:id')
+  @ApiOperation({ summary: 'Get product by ID' })
+  async getProductById(@Param('id') id: string) {
+    return this.adminService.getProductById(id);
+  }
+
+  @Post('shopping')
+  @ApiOperation({ summary: 'Create a new shopping product' })
+  async createProduct(@Body() dto: CreateProductDto, @Request() req: any) {
+    return this.adminService.createProduct(dto, req.user);
+  }
+
+  @Patch('shopping/:id')
+  @ApiOperation({ summary: 'Update product details' })
+  async updateProduct(
+    @Param('id') id: string,
+    @Body() dto: UpdateProductDto,
+    @Request() req: any,
+  ) {
+    return this.adminService.updateProduct(id, dto, req.user);
+  }
+
+  @Delete('shopping/:id')
+  @ApiOperation({ summary: 'Delete a product' })
+  async deleteProduct(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.deleteProduct(id, req.user);
+  }
+
+  @Patch('shopping/:id/publish')
+  @ApiOperation({ summary: 'Publish a product' })
+  async publishProduct(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.publishProduct(id, req.user);
+  }
+
+  @Patch('shopping/:id/unpublish')
+  @ApiOperation({ summary: 'Unpublish a product' })
+  async unpublishProduct(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.unpublishProduct(id, req.user);
+  }
+
+  // ---------------- STAYS MANAGEMENT ----------------
+  @Get('stays')
+  @ApiOperation({ summary: 'List all stay hotels (admin view)' })
+  async getHotels(@Query() query: PaginationQueryDto) {
+    return this.adminService.getHotels(query.limit, query.offset);
+  }
+
+  @Get('stays/:id')
+  @ApiOperation({ summary: 'Get hotel by ID' })
+  async getHotelById(@Param('id') id: string) {
+    return this.adminService.getHotelById(id);
+  }
+
+  @Post('stays')
+  @ApiOperation({ summary: 'Create a new hotel' })
+  async createHotel(@Body() dto: CreateHotelDto, @Request() req: any) {
+    return this.adminService.createHotel(dto, req.user);
+  }
+
+  @Patch('stays/:id')
+  @ApiOperation({ summary: 'Update hotel details' })
+  async updateHotel(
+    @Param('id') id: string,
+    @Body() dto: UpdateHotelDto,
+    @Request() req: any,
+  ) {
+    return this.adminService.updateHotel(id, dto, req.user);
+  }
+
+  @Delete('stays/:id')
+  @ApiOperation({ summary: 'Delete a hotel' })
+  async deleteHotel(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.deleteHotel(id, req.user);
+  }
+
+  @Patch('stays/:id/publish')
+  @ApiOperation({ summary: 'Publish a hotel' })
+  async publishHotel(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.publishHotel(id, req.user);
+  }
+
+  @Patch('stays/:id/unpublish')
+  @ApiOperation({ summary: 'Unpublish a hotel' })
+  async unpublishHotel(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.unpublishHotel(id, req.user);
+  }
+
+  // ---------------- SPORTS MANAGEMENT ----------------
+  @Get('sports')
+  @ApiOperation({ summary: 'List all sports venues (admin view)' })
+  async getSportsVenues(@Query() query: PaginationQueryDto) {
+    return this.adminService.getSportsVenues(query.limit, query.offset);
+  }
+
+  @Get('sports/:id')
+  @ApiOperation({ summary: 'Get sports venue by ID' })
+  async getSportsVenueById(@Param('id') id: string) {
+    return this.adminService.getSportsVenueById(id);
+  }
+
+  @Post('sports')
+  @ApiOperation({ summary: 'Create a new sports venue' })
+  async createSportsVenue(@Body() dto: CreateSportsVenueDto, @Request() req: any) {
+    return this.adminService.createSportsVenue(dto, req.user);
+  }
+
+  @Patch('sports/:id')
+  @ApiOperation({ summary: 'Update sports venue details' })
+  async updateSportsVenue(
+    @Param('id') id: string,
+    @Body() dto: UpdateSportsVenueDto,
+    @Request() req: any,
+  ) {
+    return this.adminService.updateSportsVenue(id, dto, req.user);
+  }
+
+  @Delete('sports/:id')
+  @ApiOperation({ summary: 'Delete a sports venue' })
+  async deleteSportsVenue(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.deleteSportsVenue(id, req.user);
+  }
+
+  @Patch('sports/:id/publish')
+  @ApiOperation({ summary: 'Publish a sports venue' })
+  async publishSportsVenue(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.publishSportsVenue(id, req.user);
+  }
+
+  @Patch('sports/:id/unpublish')
+  @ApiOperation({ summary: 'Unpublish a sports venue' })
+  async unpublishSportsVenue(@Param('id') id: string, @Request() req: any) {
+    return this.adminService.unpublishSportsVenue(id, req.user);
   }
 
   // ---------------- AUDIT LOGS ----------------

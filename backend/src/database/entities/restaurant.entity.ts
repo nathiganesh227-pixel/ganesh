@@ -87,6 +87,9 @@ export class RestaurantEntity {
   @Column({ default: false })
   isFineDining: boolean;
 
+  @Column({ default: true })
+  isPublished: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

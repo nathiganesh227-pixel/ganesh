@@ -12,13 +12,13 @@ export class StaysService {
 
   async findAll(category?: string): Promise<HotelEntity[]> {
     if (category) {
-      return this.repo.find({ where: { category } });
+      return this.repo.find({ where: { category, isPublished: true } });
     }
-    return this.repo.find();
+    return this.repo.find({ where: { isPublished: true } });
   }
 
   async findOne(id: string): Promise<HotelEntity> {
-    const item = await this.repo.findOne({ where: { id } });
+    const item = await this.repo.findOne({ where: { id, isPublished: true } });
     if (!item) throw new NotFoundException(`Hotel with ID ${id} not found`);
     return item;
   }

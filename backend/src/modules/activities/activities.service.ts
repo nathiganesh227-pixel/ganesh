@@ -12,13 +12,13 @@ export class ActivitiesService {
 
   async findAll(category?: string): Promise<ActivityEntity[]> {
     if (category) {
-      return this.repo.find({ where: { category } });
+      return this.repo.find({ where: { category, isPublished: true } });
     }
-    return this.repo.find();
+    return this.repo.find({ where: { isPublished: true } });
   }
 
   async findOne(id: string): Promise<ActivityEntity> {
-    const item = await this.repo.findOne({ where: { id } });
+    const item = await this.repo.findOne({ where: { id, isPublished: true } });
     if (!item) throw new NotFoundException(`Activity with ID ${id} not found`);
     return item;
   }

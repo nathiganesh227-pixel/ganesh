@@ -12,13 +12,13 @@ export class EventsService {
 
   async findAll(category?: string): Promise<EventEntity[]> {
     if (category) {
-      return this.repo.find({ where: { category } });
+      return this.repo.find({ where: { category, isPublished: true } });
     }
-    return this.repo.find();
+    return this.repo.find({ where: { isPublished: true } });
   }
 
   async findOne(id: string): Promise<EventEntity> {
-    const event = await this.repo.findOne({ where: { id } });
+    const event = await this.repo.findOne({ where: { id, isPublished: true } });
     if (!event) throw new NotFoundException(`Event with ID ${id} not found`);
     return event;
   }

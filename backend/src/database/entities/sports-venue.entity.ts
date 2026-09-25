@@ -62,6 +62,9 @@ export class SportsVenueEntity {
   @Column({ default: false })
   isPopular: boolean;
 
+  @Column({ default: true })
+  isPublished: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

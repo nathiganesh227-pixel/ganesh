@@ -31,6 +31,20 @@ import {
   CreateShowDto,
   UpdateShowDto,
 } from './dto/movie-show.dto';
+import {
+  CreateDiningDto,
+  UpdateDiningDto,
+  CreateEventDto,
+  UpdateEventDto,
+  CreateActivityDto,
+  UpdateActivityDto,
+  CreateProductDto,
+  UpdateProductDto,
+  CreateHotelDto,
+  UpdateHotelDto,
+  CreateSportsVenueDto,
+  UpdateSportsVenueDto,
+} from './dto/vertical-catalog.dto';
 
 @Injectable()
 export class AdminService {
@@ -503,6 +517,552 @@ export class AdminService {
     });
 
     return { success: true, message: 'Show deleted successfully' };
+  }
+
+  // ---------------- DINING MANAGEMENT ----------------
+  async getDining(limit = 50, offset = 0) {
+    return this.restaurantRepo.find({
+      take: limit,
+      skip: offset,
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async getDiningById(id: string) {
+    const restaurant = await this.restaurantRepo.findOne({ where: { id } });
+    if (!restaurant) {
+      throw new NotFoundException(`Restaurant with ID ${id} not found`);
+    }
+    return restaurant;
+  }
+
+  async createDining(dto: CreateDiningDto, actor: any) {
+    const id = `din_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const restaurant = this.restaurantRepo.create({
+      id,
+      ...dto,
+      isPublished: dto.isPublished ?? true,
+    });
+    await this.restaurantRepo.save(restaurant);
+
+    await this.createAuditRecord(actor, 'CREATE_DINING', 'Restaurant', restaurant.id, {
+      name: restaurant.name,
+      location: restaurant.location,
+    });
+
+    return restaurant;
+  }
+
+  async updateDining(id: string, dto: UpdateDiningDto, actor: any) {
+    const restaurant = await this.restaurantRepo.findOne({ where: { id } });
+    if (!restaurant) {
+      throw new NotFoundException(`Restaurant with ID ${id} not found`);
+    }
+
+    Object.assign(restaurant, dto);
+    await this.restaurantRepo.save(restaurant);
+
+    await this.createAuditRecord(actor, 'UPDATE_DINING', 'Restaurant', restaurant.id, {
+      updatedFields: Object.keys(dto),
+    });
+
+    return restaurant;
+  }
+
+  async deleteDining(id: string, actor: any) {
+    const restaurant = await this.restaurantRepo.findOne({ where: { id } });
+    if (!restaurant) {
+      throw new NotFoundException(`Restaurant with ID ${id} not found`);
+    }
+
+    await this.restaurantRepo.delete(id);
+
+    await this.createAuditRecord(actor, 'DELETE_DINING', 'Restaurant', id, {
+      name: restaurant.name,
+    });
+
+    return { success: true, message: 'Restaurant deleted successfully' };
+  }
+
+  async publishDining(id: string, actor: any) {
+    const restaurant = await this.restaurantRepo.findOne({ where: { id } });
+    if (!restaurant) {
+      throw new NotFoundException(`Restaurant with ID ${id} not found`);
+    }
+
+    restaurant.isPublished = true;
+    await this.restaurantRepo.save(restaurant);
+
+    await this.createAuditRecord(actor, 'PUBLISH_DINING', 'Restaurant', id);
+    return restaurant;
+  }
+
+  async unpublishDining(id: string, actor: any) {
+    const restaurant = await this.restaurantRepo.findOne({ where: { id } });
+    if (!restaurant) {
+      throw new NotFoundException(`Restaurant with ID ${id} not found`);
+    }
+
+    restaurant.isPublished = false;
+    await this.restaurantRepo.save(restaurant);
+
+    await this.createAuditRecord(actor, 'UNPUBLISH_DINING', 'Restaurant', id);
+    return restaurant;
+  }
+
+  // ---------------- EVENT MANAGEMENT ----------------
+  async getEvents(limit = 50, offset = 0) {
+    return this.eventRepo.find({
+      take: limit,
+      skip: offset,
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async getEventById(id: string) {
+    const event = await this.eventRepo.findOne({ where: { id } });
+    if (!event) {
+      throw new NotFoundException(`Event with ID ${id} not found`);
+    }
+    return event;
+  }
+
+  async createEvent(dto: CreateEventDto, actor: any) {
+    const id = `evt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const event = this.eventRepo.create({
+      id,
+      ...dto,
+      isPublished: dto.isPublished ?? true,
+    });
+    await this.eventRepo.save(event);
+
+    await this.createAuditRecord(actor, 'CREATE_EVENT', 'Event', event.id, {
+      title: event.title,
+      venue: event.venue,
+    });
+
+    return event;
+  }
+
+  async updateEvent(id: string, dto: UpdateEventDto, actor: any) {
+    const event = await this.eventRepo.findOne({ where: { id } });
+    if (!event) {
+      throw new NotFoundException(`Event with ID ${id} not found`);
+    }
+
+    Object.assign(event, dto);
+    await this.eventRepo.save(event);
+
+    await this.createAuditRecord(actor, 'UPDATE_EVENT', 'Event', event.id, {
+      updatedFields: Object.keys(dto),
+    });
+
+    return event;
+  }
+
+  async deleteEvent(id: string, actor: any) {
+    const event = await this.eventRepo.findOne({ where: { id } });
+    if (!event) {
+      throw new NotFoundException(`Event with ID ${id} not found`);
+    }
+
+    await this.eventRepo.delete(id);
+
+    await this.createAuditRecord(actor, 'DELETE_EVENT', 'Event', id, {
+      title: event.title,
+    });
+
+    return { success: true, message: 'Event deleted successfully' };
+  }
+
+  async publishEvent(id: string, actor: any) {
+    const event = await this.eventRepo.findOne({ where: { id } });
+    if (!event) {
+      throw new NotFoundException(`Event with ID ${id} not found`);
+    }
+
+    event.isPublished = true;
+    await this.eventRepo.save(event);
+
+    await this.createAuditRecord(actor, 'PUBLISH_EVENT', 'Event', id);
+    return event;
+  }
+
+  async unpublishEvent(id: string, actor: any) {
+    const event = await this.eventRepo.findOne({ where: { id } });
+    if (!event) {
+      throw new NotFoundException(`Event with ID ${id} not found`);
+    }
+
+    event.isPublished = false;
+    await this.eventRepo.save(event);
+
+    await this.createAuditRecord(actor, 'UNPUBLISH_EVENT', 'Event', id);
+    return event;
+  }
+
+  // ---------------- ACTIVITY MANAGEMENT ----------------
+  async getActivities(limit = 50, offset = 0) {
+    return this.activityRepo.find({
+      take: limit,
+      skip: offset,
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async getActivityById(id: string) {
+    const activity = await this.activityRepo.findOne({ where: { id } });
+    if (!activity) {
+      throw new NotFoundException(`Activity with ID ${id} not found`);
+    }
+    return activity;
+  }
+
+  async createActivity(dto: CreateActivityDto, actor: any) {
+    const id = `act_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const activity = this.activityRepo.create({
+      id,
+      ...dto,
+      isPublished: dto.isPublished ?? true,
+    });
+    await this.activityRepo.save(activity);
+
+    await this.createAuditRecord(actor, 'CREATE_ACTIVITY', 'Activity', activity.id, {
+      title: activity.title,
+      location: activity.location,
+    });
+
+    return activity;
+  }
+
+  async updateActivity(id: string, dto: UpdateActivityDto, actor: any) {
+    const activity = await this.activityRepo.findOne({ where: { id } });
+    if (!activity) {
+      throw new NotFoundException(`Activity with ID ${id} not found`);
+    }
+
+    Object.assign(activity, dto);
+    await this.activityRepo.save(activity);
+
+    await this.createAuditRecord(actor, 'UPDATE_ACTIVITY', 'Activity', activity.id, {
+      updatedFields: Object.keys(dto),
+    });
+
+    return activity;
+  }
+
+  async deleteActivity(id: string, actor: any) {
+    const activity = await this.activityRepo.findOne({ where: { id } });
+    if (!activity) {
+      throw new NotFoundException(`Activity with ID ${id} not found`);
+    }
+
+    await this.activityRepo.delete(id);
+
+    await this.createAuditRecord(actor, 'DELETE_ACTIVITY', 'Activity', id, {
+      title: activity.title,
+    });
+
+    return { success: true, message: 'Activity deleted successfully' };
+  }
+
+  async publishActivity(id: string, actor: any) {
+    const activity = await this.activityRepo.findOne({ where: { id } });
+    if (!activity) {
+      throw new NotFoundException(`Activity with ID ${id} not found`);
+    }
+
+    activity.isPublished = true;
+    await this.activityRepo.save(activity);
+
+    await this.createAuditRecord(actor, 'PUBLISH_ACTIVITY', 'Activity', id);
+    return activity;
+  }
+
+  async unpublishActivity(id: string, actor: any) {
+    const activity = await this.activityRepo.findOne({ where: { id } });
+    if (!activity) {
+      throw new NotFoundException(`Activity with ID ${id} not found`);
+    }
+
+    activity.isPublished = false;
+    await this.activityRepo.save(activity);
+
+    await this.createAuditRecord(actor, 'UNPUBLISH_ACTIVITY', 'Activity', id);
+    return activity;
+  }
+
+  // ---------------- SHOPPING MANAGEMENT ----------------
+  async getProducts(limit = 50, offset = 0) {
+    return this.productRepo.find({
+      take: limit,
+      skip: offset,
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async getProductById(id: string) {
+    const product = await this.productRepo.findOne({ where: { id } });
+    if (!product) {
+      throw new NotFoundException(`Product with ID ${id} not found`);
+    }
+    return product;
+  }
+
+  async createProduct(dto: CreateProductDto, actor: any) {
+    const id = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const product = this.productRepo.create({
+      id,
+      ...dto,
+      isPublished: dto.isPublished ?? true,
+    });
+    await this.productRepo.save(product);
+
+    await this.createAuditRecord(actor, 'CREATE_PRODUCT', 'Product', product.id, {
+      name: product.name,
+      brand: product.brand,
+    });
+
+    return product;
+  }
+
+  async updateProduct(id: string, dto: UpdateProductDto, actor: any) {
+    const product = await this.productRepo.findOne({ where: { id } });
+    if (!product) {
+      throw new NotFoundException(`Product with ID ${id} not found`);
+    }
+
+    Object.assign(product, dto);
+    await this.productRepo.save(product);
+
+    await this.createAuditRecord(actor, 'UPDATE_PRODUCT', 'Product', product.id, {
+      updatedFields: Object.keys(dto),
+    });
+
+    return product;
+  }
+
+  async deleteProduct(id: string, actor: any) {
+    const product = await this.productRepo.findOne({ where: { id } });
+    if (!product) {
+      throw new NotFoundException(`Product with ID ${id} not found`);
+    }
+
+    await this.productRepo.delete(id);
+
+    await this.createAuditRecord(actor, 'DELETE_PRODUCT', 'Product', id, {
+      name: product.name,
+    });
+
+    return { success: true, message: 'Product deleted successfully' };
+  }
+
+  async publishProduct(id: string, actor: any) {
+    const product = await this.productRepo.findOne({ where: { id } });
+    if (!product) {
+      throw new NotFoundException(`Product with ID ${id} not found`);
+    }
+
+    product.isPublished = true;
+    await this.productRepo.save(product);
+
+    await this.createAuditRecord(actor, 'PUBLISH_PRODUCT', 'Product', id);
+    return product;
+  }
+
+  async unpublishProduct(id: string, actor: any) {
+    const product = await this.productRepo.findOne({ where: { id } });
+    if (!product) {
+      throw new NotFoundException(`Product with ID ${id} not found`);
+    }
+
+    product.isPublished = false;
+    await this.productRepo.save(product);
+
+    await this.createAuditRecord(actor, 'UNPUBLISH_PRODUCT', 'Product', id);
+    return product;
+  }
+
+  // ---------------- STAYS MANAGEMENT ----------------
+  async getHotels(limit = 50, offset = 0) {
+    return this.hotelRepo.find({
+      take: limit,
+      skip: offset,
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async getHotelById(id: string) {
+    const hotel = await this.hotelRepo.findOne({ where: { id } });
+    if (!hotel) {
+      throw new NotFoundException(`Hotel with ID ${id} not found`);
+    }
+    return hotel;
+  }
+
+  async createHotel(dto: CreateHotelDto, actor: any) {
+    const id = `htl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const hotel = this.hotelRepo.create({
+      id,
+      ...dto,
+      isPublished: dto.isPublished ?? true,
+    });
+    await this.hotelRepo.save(hotel);
+
+    await this.createAuditRecord(actor, 'CREATE_HOTEL', 'Hotel', hotel.id, {
+      name: hotel.name,
+      location: hotel.location,
+    });
+
+    return hotel;
+  }
+
+  async updateHotel(id: string, dto: UpdateHotelDto, actor: any) {
+    const hotel = await this.hotelRepo.findOne({ where: { id } });
+    if (!hotel) {
+      throw new NotFoundException(`Hotel with ID ${id} not found`);
+    }
+
+    Object.assign(hotel, dto);
+    await this.hotelRepo.save(hotel);
+
+    await this.createAuditRecord(actor, 'UPDATE_HOTEL', 'Hotel', hotel.id, {
+      updatedFields: Object.keys(dto),
+    });
+
+    return hotel;
+  }
+
+  async deleteHotel(id: string, actor: any) {
+    const hotel = await this.hotelRepo.findOne({ where: { id } });
+    if (!hotel) {
+      throw new NotFoundException(`Hotel with ID ${id} not found`);
+    }
+
+    await this.hotelRepo.delete(id);
+
+    await this.createAuditRecord(actor, 'DELETE_HOTEL', 'Hotel', id, {
+      name: hotel.name,
+    });
+
+    return { success: true, message: 'Hotel deleted successfully' };
+  }
+
+  async publishHotel(id: string, actor: any) {
+    const hotel = await this.hotelRepo.findOne({ where: { id } });
+    if (!hotel) {
+      throw new NotFoundException(`Hotel with ID ${id} not found`);
+    }
+
+    hotel.isPublished = true;
+    await this.hotelRepo.save(hotel);
+
+    await this.createAuditRecord(actor, 'PUBLISH_HOTEL', 'Hotel', id);
+    return hotel;
+  }
+
+  async unpublishHotel(id: string, actor: any) {
+    const hotel = await this.hotelRepo.findOne({ where: { id } });
+    if (!hotel) {
+      throw new NotFoundException(`Hotel with ID ${id} not found`);
+    }
+
+    hotel.isPublished = false;
+    await this.hotelRepo.save(hotel);
+
+    await this.createAuditRecord(actor, 'UNPUBLISH_HOTEL', 'Hotel', id);
+    return hotel;
+  }
+
+  // ---------------- SPORTS MANAGEMENT ----------------
+  async getSportsVenues(limit = 50, offset = 0) {
+    return this.sportsVenueRepo.find({
+      take: limit,
+      skip: offset,
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async getSportsVenueById(id: string) {
+    const venue = await this.sportsVenueRepo.findOne({ where: { id } });
+    if (!venue) {
+      throw new NotFoundException(`Sports venue with ID ${id} not found`);
+    }
+    return venue;
+  }
+
+  async createSportsVenue(dto: CreateSportsVenueDto, actor: any) {
+    const id = `spt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const venue = this.sportsVenueRepo.create({
+      id,
+      ...dto,
+      isPublished: dto.isPublished ?? true,
+    });
+    await this.sportsVenueRepo.save(venue);
+
+    await this.createAuditRecord(actor, 'CREATE_SPORTS_VENUE', 'SportsVenue', venue.id, {
+      name: venue.name,
+      location: venue.location,
+    });
+
+    return venue;
+  }
+
+  async updateSportsVenue(id: string, dto: UpdateSportsVenueDto, actor: any) {
+    const venue = await this.sportsVenueRepo.findOne({ where: { id } });
+    if (!venue) {
+      throw new NotFoundException(`Sports venue with ID ${id} not found`);
+    }
+
+    Object.assign(venue, dto);
+    await this.sportsVenueRepo.save(venue);
+
+    await this.createAuditRecord(actor, 'UPDATE_SPORTS_VENUE', 'SportsVenue', venue.id, {
+      updatedFields: Object.keys(dto),
+    });
+
+    return venue;
+  }
+
+  async deleteSportsVenue(id: string, actor: any) {
+    const venue = await this.sportsVenueRepo.findOne({ where: { id } });
+    if (!venue) {
+      throw new NotFoundException(`Sports venue with ID ${id} not found`);
+    }
+
+    await this.sportsVenueRepo.delete(id);
+
+    await this.createAuditRecord(actor, 'DELETE_SPORTS_VENUE', 'SportsVenue', id, {
+      name: venue.name,
+    });
+
+    return { success: true, message: 'Sports venue deleted successfully' };
+  }
+
+  async publishSportsVenue(id: string, actor: any) {
+    const venue = await this.sportsVenueRepo.findOne({ where: { id } });
+    if (!venue) {
+      throw new NotFoundException(`Sports venue with ID ${id} not found`);
+    }
+
+    venue.isPublished = true;
+    await this.sportsVenueRepo.save(venue);
+
+    await this.createAuditRecord(actor, 'PUBLISH_SPORTS_VENUE', 'SportsVenue', id);
+    return venue;
+  }
+
+  async unpublishSportsVenue(id: string, actor: any) {
+    const venue = await this.sportsVenueRepo.findOne({ where: { id } });
+    if (!venue) {
+      throw new NotFoundException(`Sports venue with ID ${id} not found`);
+    }
+
+    venue.isPublished = false;
+    await this.sportsVenueRepo.save(venue);
+
+    await this.createAuditRecord(actor, 'UNPUBLISH_SPORTS_VENUE', 'SportsVenue', id);
+    return venue;
   }
 
   // ---------------- AUDIT LOGS ----------------

@@ -11,15 +11,15 @@ export class SportsService {
   ) {}
 
   async findAll(sport?: string): Promise<SportsVenueEntity[]> {
+    const list = await this.repo.find({ where: { isPublished: true } });
     if (sport) {
-      const all = await this.repo.find();
-      return all.filter((v) => v.supportedSports.some((s) => s.toLowerCase().includes(sport.toLowerCase())));
+      return list.filter((v) => v.supportedSports.some((s) => s.toLowerCase().includes(sport.toLowerCase())));
     }
-    return this.repo.find();
+    return list;
   }
 
   async findOne(id: string): Promise<SportsVenueEntity> {
-    const item = await this.repo.findOne({ where: { id } });
+    const item = await this.repo.findOne({ where: { id, isPublished: true } });
     if (!item) throw new NotFoundException(`Sports venue with ID ${id} not found`);
     return item;
   }

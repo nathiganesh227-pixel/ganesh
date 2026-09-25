@@ -73,6 +73,9 @@ export class EventEntity {
   @Column({ default: false })
   isFeatured: boolean;
 
+  @Column({ default: true })
+  isPublished: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 
