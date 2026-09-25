@@ -9,9 +9,13 @@ export class DiningController {
   constructor(private readonly diningService: DiningService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get all restaurants' })
-  async findAll(@Query('cuisine') cuisine?: string): Promise<RestaurantEntity[]> {
-    return this.diningService.findAll(cuisine);
+  @ApiOperation({ summary: 'Get all restaurants with optional cuisine, search query, and city filters' })
+  async findAll(
+    @Query('cuisine') cuisine?: string,
+    @Query('q') q?: string,
+    @Query('city') city?: string,
+  ): Promise<RestaurantEntity[]> {
+    return this.diningService.findAll(cuisine, q, city);
   }
 
   @Get(':id')

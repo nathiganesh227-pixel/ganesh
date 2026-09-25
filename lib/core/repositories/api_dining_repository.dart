@@ -1,6 +1,7 @@
 import '../models/dining.dart';
 import '../network/api_client.dart';
 import '../network/api_endpoints.dart';
+import '../network/environment_config.dart';
 import 'dining_repository.dart';
 import 'local_dining_repository.dart';
 
@@ -15,11 +16,16 @@ class ApiDiningRepository implements DiningRepository {
         _fallback = fallback ?? const LocalDiningRepository();
 
   @override
-  Future<List<Restaurant>> getRestaurants({String? cuisine}) async {
+  Future<List<Restaurant>> getRestaurants({String? cuisine, String? q, String? city}) async {
+    final queryParams = <String, String>{};
+    if (cuisine != null && cuisine.isNotEmpty) queryParams['cuisine'] = cuisine;
+    if (q != null && q.isNotEmpty) queryParams['q'] = q;
+    if (city != null && city.isNotEmpty) queryParams['city'] = city;
+
     try {
       final response = await _client.get<List<Restaurant>>(
         ApiEndpoints.dining,
-        queryParams: cuisine != null ? {'cuisine': cuisine} : null,
+        queryParams: queryParams.isNotEmpty ? queryParams : null,
         fromJson: (json) {
           if (json is List) {
             return json.map((item) => Restaurant.fromJson(item as Map<String, dynamic>)).toList();
@@ -28,11 +34,20 @@ class ApiDiningRepository implements DiningRepository {
         },
       );
 
-      if (response.success && response.data != null && response.data!.isNotEmpty) {
+      if (response.success && response.data != null) {
         return response.data!;
       }
-    } catch (_) {}
-    return _fallback.getRestaurants(cuisine: cuisine);
+
+      // If response is not successful in prod, do not mask with mock data
+      if (EnvironmentConfig.current == AppEnvironment.prod && !EnvironmentConfig.useMockData) {
+        throw Exception(response.message ?? 'Failed to load restaurants from server');
+      }
+    } catch (e) {
+      if (EnvironmentConfig.current == AppEnvironment.prod && !EnvironmentConfig.useMockData) {
+        rethrow;
+      }
+    }
+    return _fallback.getRestaurants(cuisine: cuisine, q: q, city: city);
   }
 
   @override
@@ -46,7 +61,15 @@ class ApiDiningRepository implements DiningRepository {
       if (response.success && response.data != null) {
         return response.data;
       }
-    } catch (_) {}
+
+      if (EnvironmentConfig.current == AppEnvironment.prod && !EnvironmentConfig.useMockData) {
+        throw Exception(response.message ?? 'Failed to load restaurant details');
+      }
+    } catch (e) {
+      if (EnvironmentConfig.current == AppEnvironment.prod && !EnvironmentConfig.useMockData) {
+        rethrow;
+      }
+    }
     return _fallback.getRestaurantById(id);
   }
 

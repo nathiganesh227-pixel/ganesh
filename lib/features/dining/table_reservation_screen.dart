@@ -4,7 +4,11 @@ import 'package:intl/intl.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_gradients.dart';
 import '../../core/constants/app_typography.dart';
+import '../../core/data/plaza_global_state.dart';
 import '../../core/models/dining.dart';
+import '../../core/models/unified_booking.dart';
+import '../../core/repositories/dining_repository.dart';
+import '../../core/repositories/repository_provider.dart';
 import '../../core/widgets/glass_button.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/plaza_image.dart';
@@ -12,10 +16,12 @@ import 'dining_confirmation_screen.dart';
 
 class TableReservationScreen extends StatefulWidget {
   final Restaurant restaurant;
+  final DiningRepository? repository;
 
   const TableReservationScreen({
     super.key,
     required this.restaurant,
+    this.repository,
   });
 
   @override
@@ -23,11 +29,14 @@ class TableReservationScreen extends StatefulWidget {
 }
 
 class _TableReservationScreenState extends State<TableReservationScreen> {
+  late final DiningRepository _diningRepo;
   late DateTime _selectedDate;
   late List<DateTime> _dates;
   int _selectedPartySize = 2;
   SeatingPreference _selectedSeating = SeatingPreference.indoor;
   String _selectedTimeSlot = '07:30 PM';
+  bool _isSubmitting = false;
+
   final TextEditingController _specialRequestController = TextEditingController();
   final TextEditingController _guestNameController = TextEditingController(text: 'Gopi Ganesh');
   final TextEditingController _guestPhoneController = TextEditingController(text: '+91 98765 43210');
@@ -35,6 +44,7 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
   @override
   void initState() {
     super.initState();
+    _diningRepo = widget.repository ?? RepositoryProvider.instance.diningRepo;
     final now = DateTime.now();
     _selectedDate = DateTime(now.year, now.month, now.day);
     _dates = List.generate(7, (i) => _selectedDate.add(Duration(days: i)));
@@ -51,9 +61,16 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
     super.dispose();
   }
 
-  void _confirmReservation() {
+  Future<void> _confirmReservation() async {
+    if (_isSubmitting) return;
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    final reservationId = 'RES-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
     final reservation = DiningReservation(
-      reservationId: 'RES-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
+      reservationId: reservationId,
       restaurant: widget.restaurant,
       date: _selectedDate,
       timeSlot: _selectedTimeSlot,
@@ -62,21 +79,63 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
       specialRequest: _specialRequestController.text.trim().isNotEmpty
           ? _specialRequestController.text.trim()
           : null,
-      guestName: _guestNameController.text.trim(),
-      guestPhone: _guestPhoneController.text.trim(),
+      guestName: _guestNameController.text.trim().isNotEmpty
+          ? _guestNameController.text.trim()
+          : PlazaGlobalState.instance.userName,
+      guestPhone: _guestPhoneController.text.trim().isNotEmpty
+          ? _guestPhoneController.text.trim()
+          : PlazaGlobalState.instance.userPhone,
       createdAt: DateTime.now(),
     );
 
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) => DiningConfirmationScreen(reservation: reservation),
+    try {
+      await _diningRepo.createReservation(reservation);
+    } catch (_) {}
+
+    // Add to Global user bookings
+    PlazaGlobalState.instance.addBooking(
+      UnifiedBooking(
+        id: reservationId,
+        type: UnifiedBookingType.dining,
+        title: widget.restaurant.name,
+        subtitle: '${reservation.partySize} Guests • ${reservation.seatingPreference.label}',
+        location: widget.restaurant.location,
+        date: reservation.date,
+        time: reservation.timeSlot,
+        imageUrl: widget.restaurant.coverImageUrl,
+        status: BookingStatus.upcoming,
+        totalAmount: 0.0,
+        confirmationCode: reservationId,
+        seatOrSlotInfo: '${reservation.partySize} Guests',
+        diningReservation: reservation,
       ),
     );
+
+    if (mounted) {
+      setState(() {
+        _isSubmitting = false;
+      });
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => DiningConfirmationScreen(reservation: reservation),
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final slots = widget.restaurant.availableSlots.isNotEmpty
+        ? widget.restaurant.availableSlots
+        : [
+            const DiningTimeSlot(time: '12:30 PM', status: SlotAvailabilityStatus.available, tablesLeft: 4),
+            const DiningTimeSlot(time: '01:30 PM', status: SlotAvailabilityStatus.available, tablesLeft: 3),
+            const DiningTimeSlot(time: '07:00 PM', status: SlotAvailabilityStatus.fillingFast, tablesLeft: 2),
+            const DiningTimeSlot(time: '08:00 PM', status: SlotAvailabilityStatus.fewTablesLeft, tablesLeft: 1),
+            const DiningTimeSlot(time: '09:00 PM', status: SlotAvailabilityStatus.available, tablesLeft: 5),
+          ];
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -314,7 +373,7 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
                 Wrap(
                   spacing: 10,
                   runSpacing: 10,
-                  children: widget.restaurant.availableSlots.map((slot) {
+                  children: slots.map((slot) {
                     final isSelected = _selectedTimeSlot == slot.time;
                     Color badgeColor = AppColors.liveGreen;
                     String statusText = '${slot.tablesLeft} tables';
@@ -367,8 +426,57 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
 
                 const SizedBox(height: 20),
 
-                // 5. Special Requests
-                Text('5. Special Requests (Optional)', style: AppTypography.headingSmall),
+                // 5. Guest Details
+                Text('5. Contact & Guest Details', style: AppTypography.headingSmall),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.glassFillMedium,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppColors.glassBorderSubtle),
+                        ),
+                        child: TextField(
+                          controller: _guestNameController,
+                          style: AppTypography.bodyMedium,
+                          decoration: InputDecoration(
+                            labelText: 'Full Name',
+                            labelStyle: AppTypography.bodySmall.copyWith(color: AppColors.textMuted),
+                            border: InputBorder.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.glassFillMedium,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppColors.glassBorderSubtle),
+                        ),
+                        child: TextField(
+                          controller: _guestPhoneController,
+                          style: AppTypography.bodyMedium,
+                          decoration: InputDecoration(
+                            labelText: 'Phone Number',
+                            labelStyle: AppTypography.bodySmall.copyWith(color: AppColors.textMuted),
+                            border: InputBorder.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 20),
+
+                // 6. Special Requests
+                Text('6. Special Requests (Optional)', style: AppTypography.headingSmall),
                 const SizedBox(height: 10),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -411,12 +519,12 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
                         ? MediaQuery.of(context).padding.bottom + 8
                         : 18,
                   ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xF0090D18),
-                    border: const Border(
+                  decoration: const BoxDecoration(
+                    color: Color(0xF0090D18),
+                    border: Border(
                       top: BorderSide(color: AppColors.glassBorder, width: 1.0),
                     ),
-                    boxShadow: const [
+                    boxShadow: [
                       BoxShadow(
                         color: Color(0x80000000),
                         blurRadius: 24,
@@ -444,11 +552,11 @@ class _TableReservationScreenState extends State<TableReservationScreen> {
                       const SizedBox(width: 16),
                       Expanded(
                         child: GlassButton(
-                          text: 'Confirm Table',
-                          icon: Icons.check_rounded,
+                          text: _isSubmitting ? 'Reserving...' : 'Confirm Table',
+                          icon: _isSubmitting ? null : Icons.check_rounded,
                           variant: GlassButtonVariant.primary,
                           height: 52,
-                          onPressed: _confirmReservation,
+                          onPressed: _isSubmitting ? null : _confirmReservation,
                         ),
                       ),
                     ],
