@@ -10,8 +10,12 @@ export class SportsController {
 
   @Get()
   @ApiOperation({ summary: 'Get all sports venues' })
-  async findAll(@Query('sport') sport?: string): Promise<SportsVenueEntity[]> {
-    return this.service.findAll(sport);
+  async findAll(
+    @Query('sport') sport?: string,
+    @Query('q') q?: string,
+    @Query('city') city?: string,
+  ): Promise<SportsVenueEntity[]> {
+    return this.service.findAll(sport, q, city);
   }
 
   @Get(':id')

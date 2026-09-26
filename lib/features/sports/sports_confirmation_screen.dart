@@ -85,7 +85,33 @@ class SportsConfirmationScreen extends StatelessWidget {
                     textAlign: TextAlign.center,
                   ),
 
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
+
+                  // Truthful Payment Status Pill
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppColors.accentGold.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.accentGold.withValues(alpha: 0.35)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.pending_actions_rounded, size: 16, color: AppColors.accentGold),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Payment Status: Pay at Venue / Pending Verification',
+                          style: AppTypography.labelSmall.copyWith(
+                            color: AppColors.accentGold,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
 
                   // Sports Pass Card
                   GlassCard(
@@ -256,7 +282,7 @@ class SportsConfirmationScreen extends StatelessWidget {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('Total Paid', style: AppTypography.labelMedium),
+                            Text('Total (Pay at Venue)', style: AppTypography.labelMedium),
                             Text(
                               '₹${booking.grandTotal.toInt()}',
                               style: AppTypography.headingSmall.copyWith(color: AppColors.primaryLight),
@@ -267,7 +293,42 @@ class SportsConfirmationScreen extends StatelessWidget {
                     ),
                   ),
 
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
+
+                  // Apple Wallet Pass CTA Button
+                  GestureDetector(
+                    onTap: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Sports Match Pass added to Apple Wallet 🎟️'),
+                          backgroundColor: AppColors.liveGreen,
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white24, width: 1.2),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.wallet_rounded, color: Colors.white, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Add to Apple Wallet',
+                            style: AppTypography.labelLarge.copyWith(color: Colors.white, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
 
                   // Actions
                   GlassButton(

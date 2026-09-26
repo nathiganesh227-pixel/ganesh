@@ -3,7 +3,11 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_gradients.dart';
 import '../../core/constants/app_typography.dart';
+import '../../core/data/plaza_global_state.dart';
 import '../../core/models/sports.dart';
+import '../../core/models/unified_booking.dart';
+import '../../core/repositories/sports_repository.dart';
+import '../../core/repositories/repository_provider.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/glass_button.dart';
 import '../../core/widgets/plaza_image.dart';
@@ -12,11 +16,13 @@ import 'sports_confirmation_screen.dart';
 class SportsSlotBookingScreen extends StatefulWidget {
   final SportsVenue venue;
   final SportType initialSport;
+  final SportsRepository? repository;
 
   const SportsSlotBookingScreen({
     super.key,
     required this.venue,
     required this.initialSport,
+    this.repository,
   });
 
   @override
@@ -24,6 +30,7 @@ class SportsSlotBookingScreen extends StatefulWidget {
 }
 
 class _SportsSlotBookingScreenState extends State<SportsSlotBookingScreen> {
+  late final SportsRepository _sportsRepo;
   late SportType _selectedSport;
   late SportsSlot _selectedSlot;
   int _selectedDateOffset = 0;
@@ -34,12 +41,13 @@ class _SportsSlotBookingScreenState extends State<SportsSlotBookingScreen> {
   final TextEditingController _squadNameController = TextEditingController(text: 'Hyderabadi Strikers');
   final TextEditingController _bookerNameController = TextEditingController(text: 'Nathi Gopi Ganesh');
   final TextEditingController _bookerPhoneController = TextEditingController(text: '+91 98765 43210');
-  final String _selectedPayment = 'UPI / Google Pay';
+  final String _selectedPayment = 'Pay at Venue (Cash/UPI)';
   bool _isProcessing = false;
 
   @override
   void initState() {
     super.initState();
+    _sportsRepo = widget.repository ?? RepositoryProvider.instance.sportsRepo;
     _selectedSport = widget.initialSport;
     _selectedSlot = widget.venue.availableSlots.firstWhere(
       (s) => s.isBookable,
@@ -79,11 +87,34 @@ class _SportsSlotBookingScreenState extends State<SportsSlotBookingScreen> {
 
   void _confirmBooking() async {
     setState(() => _isProcessing = true);
-    await Future.delayed(const Duration(milliseconds: 600));
-    if (!mounted) return;
 
     final random = Random();
     final bookingId = 'PLZ-SPT-${random.nextInt(899999) + 100000}';
+    final dateStr =
+        '${_selectedDate.year.toString().padLeft(4, '0')}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+
+    final success = await _sportsRepo.bookSlot(
+      venueId: widget.venue.id,
+      sportName: _selectedSport.label,
+      slotId: _selectedSlot.id,
+      date: dateStr,
+      playersCount: _playerCount,
+      squadName: _isSquadBooking ? _squadNameController.text.trim() : null,
+      addOnIds: _selectedAddOnIds.toList(),
+    );
+
+    if (!mounted) return;
+    setState(() => _isProcessing = false);
+
+    if (!success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('That court slot is already booked or unavailable. Please choose another slot.'),
+          backgroundColor: AppColors.alertRed,
+        ),
+      );
+      return;
+    }
 
     final selectedAddOnsList = widget.venue.equipmentAddOns
         .where((a) => _selectedAddOnIds.contains(a.id))
@@ -107,12 +138,28 @@ class _SportsSlotBookingScreenState extends State<SportsSlotBookingScreen> {
       perPersonCost: _perPersonCost,
       bookerName: _bookerNameController.text.trim(),
       bookerPhone: _bookerPhoneController.text.trim(),
-      qrCodeData: 'PLAZA-SPORTS:$bookingId:${widget.venue.id}',
+      qrCodeData: 'PLAZA://SPORTS/$bookingId',
       paymentMethod: _selectedPayment,
       bookingTime: DateTime.now(),
     );
 
-    setState(() => _isProcessing = false);
+    PlazaGlobalState.instance.addBooking(
+      UnifiedBooking(
+        id: bookingId,
+        type: UnifiedBookingType.sports,
+        title: widget.venue.name,
+        subtitle: '${_selectedSport.label} • ${_selectedSlot.time}',
+        location: widget.venue.location,
+        date: _selectedDate,
+        time: _selectedSlot.time,
+        imageUrl: widget.venue.coverImageUrl,
+        status: BookingStatus.upcoming,
+        totalAmount: _grandTotal,
+        confirmationCode: bookingId,
+        seatOrSlotInfo: '${_selectedSlot.courtName} ($_durationMinutes min)',
+        sportsBooking: booking,
+      ),
+    );
 
     Navigator.pushReplacement(
       context,
@@ -607,6 +654,39 @@ class _SportsSlotBookingScreenState extends State<SportsSlotBookingScreen> {
                 ),
 
                 const SizedBox(height: 20),
+
+                // Payment Method Notice
+                GlassCard(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.liveGreen.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.payment_rounded, color: AppColors.liveGreen, size: 20),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Payment Method: Pay at Venue', style: AppTypography.labelMedium),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Cash / UPI accepted at the venue concierge upon match pass check-in.',
+                              style: AppTypography.bodySmall.copyWith(fontSize: 11, color: AppColors.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
 
                 // Bill Summary
                 GlassCard(

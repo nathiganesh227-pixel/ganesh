@@ -176,7 +176,13 @@ export class BookingsService {
         where: { id: payload.venueId },
         lock: { mode: 'pessimistic_write' },
       });
-      if (!venue) throw new NotFoundException('Sports venue not found');
+      if (!venue || venue.isPublished === false) {
+        throw new NotFoundException('Sports venue not found or unpublished');
+      }
+
+      if (!payload.date || isNaN(Date.parse(payload.date))) {
+        throw new BadRequestException('A valid booking date is required');
+      }
 
       const slot = venue.slots?.find((s) => s.id === payload.slotId);
       if (!slot) throw new NotFoundException('Selected sports slot not found');

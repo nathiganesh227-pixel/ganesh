@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_typography.dart';
+import '../../core/data/plaza_global_state.dart';
 import '../../core/models/sports.dart';
+import '../../core/repositories/sports_repository.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/glass_button.dart';
 import '../../core/widgets/glass_pill.dart';
@@ -10,10 +12,12 @@ import 'sports_slot_booking_screen.dart';
 
 class SportsVenueDetailsScreen extends StatefulWidget {
   final SportsVenue venue;
+  final SportsRepository? repository;
 
   const SportsVenueDetailsScreen({
     super.key,
     required this.venue,
+    this.repository,
   });
 
   @override
@@ -36,7 +40,7 @@ class _SportsVenueDetailsScreenState extends State<SportsVenueDetailsScreen> {
           CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [
-              // Hero Image Gallery
+              // Hero Image Gallery with Back & Favorite Actions
               SliverAppBar(
                 expandedHeight: 340,
                 pinned: true,
@@ -55,6 +59,34 @@ class _SportsVenueDetailsScreenState extends State<SportsVenueDetailsScreen> {
                     ),
                   ),
                 ),
+                actions: [
+                  ListenableBuilder(
+                    listenable: PlazaGlobalState.instance,
+                    builder: (context, _) {
+                      final isFav = PlazaGlobalState.instance.favoriteIds.contains(widget.venue.id);
+                      return Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: GestureDetector(
+                          onTap: () => PlazaGlobalState.instance.toggleFavorite(widget.venue.id),
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: const Color(0x95000000),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: AppColors.glassBorderSubtle),
+                            ),
+                            child: Icon(
+                              isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                              color: isFav ? AppColors.alertRed : Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
                 flexibleSpace: FlexibleSpaceBar(
                   background: Stack(
                     fit: StackFit.expand,
@@ -94,7 +126,7 @@ class _SportsVenueDetailsScreenState extends State<SportsVenueDetailsScreen> {
                                   height: 8,
                                   margin: const EdgeInsets.symmetric(horizontal: 3),
                                   decoration: BoxDecoration(
-                                    color: _selectedImageIndex == idx ? AppColors.primary : Colors.white38,
+                                    color: _selectedImageIndex == idx ? AppColors.liveGreen : Colors.white38,
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                 ),
@@ -147,7 +179,7 @@ class _SportsVenueDetailsScreenState extends State<SportsVenueDetailsScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 8),
                       Row(
                         children: [
                           Container(
@@ -182,9 +214,19 @@ class _SportsVenueDetailsScreenState extends State<SportsVenueDetailsScreen> {
                               ),
                               child: Row(
                                 children: [
-                                  Container(width: 6, height: 6, decoration: const BoxDecoration(color: AppColors.liveGreen, shape: BoxShape.circle)),
+                                  Container(
+                                    width: 6,
+                                    height: 6,
+                                    decoration: const BoxDecoration(
+                                      color: AppColors.liveGreen,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
                                   const SizedBox(width: 4),
-                                  Text('Open Today', style: AppTypography.labelSmall.copyWith(color: AppColors.liveGreen, fontSize: 10)),
+                                  Text(
+                                    'Open Today',
+                                    style: AppTypography.labelSmall.copyWith(color: AppColors.liveGreen, fontSize: 10),
+                                  ),
                                 ],
                               ),
                             ),
@@ -271,16 +313,24 @@ class _SportsVenueDetailsScreenState extends State<SportsVenueDetailsScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(slot.time, style: AppTypography.labelLarge),
-                                    Text(slot.courtName, style: AppTypography.bodySmall.copyWith(fontSize: 10, color: AppColors.textMuted)),
+                                    Text(
+                                      slot.courtName,
+                                      style: AppTypography.bodySmall.copyWith(fontSize: 10, color: AppColors.textMuted),
+                                    ),
                                   ],
                                 ),
                                 Row(
                                   children: [
-                                    Text('₹${slot.price.toInt()} / hr', style: AppTypography.labelMedium.copyWith(color: AppColors.accentAmber)),
+                                    Text(
+                                      '₹${slot.price.toInt()} / hr',
+                                      style: AppTypography.labelMedium.copyWith(color: AppColors.accentAmber),
+                                    ),
                                     const SizedBox(width: 12),
                                     GlassPill(
                                       label: slot.isBookable ? 'Available' : 'Booked',
-                                      backgroundColor: slot.isBookable ? AppColors.liveGreen.withValues(alpha: 0.2) : Colors.white10,
+                                      backgroundColor: slot.isBookable
+                                          ? AppColors.liveGreen.withValues(alpha: 0.2)
+                                          : Colors.white10,
                                       textColor: slot.isBookable ? AppColors.liveGreen : AppColors.textMuted,
                                     ),
                                   ],
@@ -335,7 +385,10 @@ class _SportsVenueDetailsScreenState extends State<SportsVenueDetailsScreen> {
                           MaterialPageRoute(
                             builder: (context) => SportsSlotBookingScreen(
                               venue: widget.venue,
-                              initialSport: widget.venue.supportedSports.first,
+                              initialSport: widget.venue.supportedSports.isNotEmpty
+                                  ? widget.venue.supportedSports.first
+                                  : SportType.boxCricket,
+                              repository: widget.repository,
                             ),
                           ),
                         );

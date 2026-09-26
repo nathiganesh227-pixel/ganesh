@@ -1,7 +1,7 @@
 import '../models/sports.dart';
 
 abstract class SportsRepository {
-  Future<List<SportsVenue>> getVenues({String? sport});
+  Future<List<SportsVenue>> getVenues({String? sport, String? q, String? city});
   Future<SportsVenue?> getVenueById(String id);
   Future<bool> bookSlot({
     required String venueId,
