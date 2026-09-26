@@ -1,6 +1,7 @@
 import '../models/activity.dart';
 import '../network/api_client.dart';
 import '../network/api_endpoints.dart';
+import '../network/environment_config.dart';
 import 'activity_repository.dart';
 import 'local_activity_repository.dart';
 
@@ -15,13 +16,18 @@ class ApiActivityRepository implements ActivityRepository {
         _fallback = fallback ?? const LocalActivityRepository();
 
   @override
-  Future<List<PlazaActivity>> getActivities({String? category}) async {
+  Future<List<PlazaActivity>> getActivities({String? category, String? q, String? city}) async {
+    final queryParams = <String, String>{};
+    if (category != null && category.isNotEmpty && category.toLowerCase() != 'all') {
+      queryParams['category'] = category;
+    }
+    if (q != null && q.isNotEmpty) queryParams['q'] = q;
+    if (city != null && city.isNotEmpty) queryParams['city'] = city;
+
     try {
       final response = await _client.get<List<PlazaActivity>>(
         ApiEndpoints.activities,
-        queryParams: (category != null && category.isNotEmpty && category.toLowerCase() != 'all')
-            ? {'category': category}
-            : null,
+        queryParams: queryParams.isNotEmpty ? queryParams : null,
         fromJson: (json) {
           if (json is List) {
             return json
@@ -35,8 +41,17 @@ class ApiActivityRepository implements ActivityRepository {
       if (response.success && response.data != null && response.data!.isNotEmpty) {
         return response.data!;
       }
-    } catch (_) {}
-    return _fallback.getActivities(category: category);
+
+      // If response is not successful in prod, do not mask with mock data
+      if (EnvironmentConfig.current == AppEnvironment.prod && !EnvironmentConfig.useMockData) {
+        throw Exception(response.message ?? 'Failed to load activities from server');
+      }
+    } catch (e) {
+      if (EnvironmentConfig.current == AppEnvironment.prod && !EnvironmentConfig.useMockData) {
+        rethrow;
+      }
+    }
+    return _fallback.getActivities(category: category, q: q, city: city);
   }
 
   @override
@@ -52,7 +67,15 @@ class ApiActivityRepository implements ActivityRepository {
       if (response.success && response.data != null) {
         return response.data;
       }
-    } catch (_) {}
+
+      if (EnvironmentConfig.current == AppEnvironment.prod && !EnvironmentConfig.useMockData) {
+        throw Exception(response.message ?? 'Failed to load activity details');
+      }
+    } catch (e) {
+      if (EnvironmentConfig.current == AppEnvironment.prod && !EnvironmentConfig.useMockData) {
+        rethrow;
+      }
+    }
     return _fallback.getActivityById(id);
   }
 

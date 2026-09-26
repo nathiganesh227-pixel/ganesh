@@ -10,8 +10,12 @@ export class ActivitiesController {
 
   @Get()
   @ApiOperation({ summary: 'Get all activities' })
-  async findAll(@Query('category') category?: string): Promise<ActivityEntity[]> {
-    return this.service.findAll(category);
+  async findAll(
+    @Query('category') category?: string,
+    @Query('q') q?: string,
+    @Query('city') city?: string,
+  ): Promise<ActivityEntity[]> {
+    return this.service.findAll(category, q, city);
   }
 
   @Get(':id')

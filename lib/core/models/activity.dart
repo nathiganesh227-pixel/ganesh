@@ -136,6 +136,7 @@ class PlazaActivity {
   final List<String> whatIsIncluded;
   final List<String> requirements;
   final List<ActivityPackage> packages;
+  final List<ActivityAddOn> addOns;
   final List<ActivityTimeSlot> availableSlots;
   final bool isTrending;
   final bool isGroupPick;
@@ -159,6 +160,7 @@ class PlazaActivity {
     required this.whatIsIncluded,
     required this.requirements,
     required this.packages,
+    this.addOns = const [],
     required this.availableSlots,
     this.isTrending = false,
     this.isGroupPick = false,
@@ -166,6 +168,18 @@ class PlazaActivity {
   });
 
   factory PlazaActivity.fromJson(Map<String, dynamic> json) {
+    final pkgs = (json['packages'] as List<dynamic>?)
+            ?.map((e) => ActivityPackage.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        [];
+
+    double derivedPrice = 450.0;
+    if (json['startingPrice'] != null) {
+      derivedPrice = (json['startingPrice'] as num).toDouble();
+    } else if (pkgs.isNotEmpty) {
+      derivedPrice = pkgs.map((p) => p.pricePerPerson).reduce((a, b) => a < b ? a : b);
+    }
+
     return PlazaActivity(
       id: json['id'] as String? ?? '',
       title: json['title'] as String? ?? '',
@@ -180,7 +194,7 @@ class PlazaActivity {
       rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
       reviewCount: (json['reviewCount'] as num?)?.toInt() ?? 0,
       duration: json['duration'] as String? ?? '60 mins',
-      startingPrice: (json['startingPrice'] as num?)?.toDouble() ?? 450.0,
+      startingPrice: derivedPrice,
       liveAvailabilityLabel: json['liveAvailabilityLabel'] as String? ?? 'Slots available',
       about: json['about'] as String? ?? json['description'] as String? ?? '',
       whatIsIncluded: (json['highlights'] as List<dynamic>?)?.map((e) => e.toString()).toList() ??
@@ -189,8 +203,9 @@ class PlazaActivity {
       requirements: (json['safetyGuidelines'] as List<dynamic>?)?.map((e) => e.toString()).toList() ??
           (json['requirements'] as List<dynamic>?)?.map((e) => e.toString()).toList() ??
           [],
-      packages: (json['packages'] as List<dynamic>?)
-              ?.map((e) => ActivityPackage.fromJson(e as Map<String, dynamic>))
+      packages: pkgs,
+      addOns: (json['addOns'] as List<dynamic>?)
+              ?.map((e) => ActivityAddOn.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
       availableSlots: (json['timeSlots'] as List<dynamic>?)
@@ -224,6 +239,7 @@ class PlazaActivity {
     'whatIsIncluded': whatIsIncluded,
     'requirements': requirements,
     'packages': packages.map((e) => e.toJson()).toList(),
+    'addOns': addOns.map((e) => e.toJson()).toList(),
     'availableSlots': availableSlots.map((e) => e.toJson()).toList(),
     'isTrending': isTrending,
     'isGroupPick': isGroupPick,

@@ -10,11 +10,37 @@ export class ActivitiesService {
     private readonly repo: Repository<ActivityEntity>,
   ) {}
 
-  async findAll(category?: string): Promise<ActivityEntity[]> {
-    if (category) {
-      return this.repo.find({ where: { category, isPublished: true } });
+  async findAll(category?: string, q?: string, city?: string): Promise<ActivityEntity[]> {
+    let items = await this.repo.find({ where: { isPublished: true } });
+    if (category && category.toLowerCase() !== 'all') {
+      items = items.filter(
+        (a) => a.category?.toLowerCase() === category.toLowerCase(),
+      );
     }
-    return this.repo.find({ where: { isPublished: true } });
+    if (city && city.trim() !== '') {
+      const c = city.toLowerCase();
+      items = items.filter(
+        (a) =>
+          a.location?.toLowerCase().includes(c) ||
+          (c === 'hyderabad' &&
+            (a.location?.toLowerCase().includes('hitec') ||
+              a.location?.toLowerCase().includes('inorbit') ||
+              a.location?.toLowerCase().includes('shamshabad') ||
+              a.location?.toLowerCase().includes('gachibowli'))),
+      );
+    }
+    if (q && q.trim() !== '') {
+      const query = q.toLowerCase();
+      items = items.filter(
+        (a) =>
+          a.title?.toLowerCase().includes(query) ||
+          a.description?.toLowerCase().includes(query) ||
+          a.tagline?.toLowerCase().includes(query) ||
+          a.category?.toLowerCase().includes(query) ||
+          a.location?.toLowerCase().includes(query),
+      );
+    }
+    return items;
   }
 
   async findOne(id: string): Promise<ActivityEntity> {

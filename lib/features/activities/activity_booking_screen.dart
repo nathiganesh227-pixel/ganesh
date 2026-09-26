@@ -5,6 +5,10 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_gradients.dart';
 import '../../core/constants/app_typography.dart';
 import '../../core/models/activity.dart';
+import '../../core/data/plaza_global_state.dart';
+import '../../core/models/unified_booking.dart';
+import '../../core/repositories/activity_repository.dart';
+import '../../core/repositories/repository_provider.dart';
 import '../../core/widgets/glass_button.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/plaza_image.dart';
@@ -12,10 +16,12 @@ import 'activity_confirmation_screen.dart';
 
 class ActivityBookingScreen extends StatefulWidget {
   final PlazaActivity activity;
+  final ActivityRepository? repository;
 
   const ActivityBookingScreen({
     super.key,
     required this.activity,
+    this.repository,
   });
 
   @override
@@ -23,6 +29,7 @@ class ActivityBookingScreen extends StatefulWidget {
 }
 
 class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
+  late final ActivityRepository _activityRepo;
   late DateTime _selectedDate;
   late List<DateTime> _dates;
   late String _selectedTimeSlot;
@@ -39,38 +46,60 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
   @override
   void initState() {
     super.initState();
+    _activityRepo = widget.repository ?? RepositoryProvider.instance.activityRepo;
     final now = DateTime.now();
     _selectedDate = DateTime(now.year, now.month, now.day);
     _dates = List.generate(7, (i) => _selectedDate.add(Duration(days: i)));
-    _selectedTimeSlot = widget.activity.availableSlots.first.time;
+    _selectedTimeSlot = widget.activity.availableSlots.isNotEmpty
+        ? widget.activity.availableSlots.first.time
+        : '05:00 PM';
     _selectedPackage = widget.activity.packages.first;
 
-    _addOns = [
-      ActivityAddOn(
-        id: 'addon_1',
-        name: 'Extra 15-Min Extension',
-        description: 'Extend your slot time seamlessly',
-        price: 250,
-      ),
-      ActivityAddOn(
-        id: 'addon_2',
-        name: 'Hydration & Energy Pack',
-        description: 'Red Bull / Gatorade + Mineral water',
-        price: 150,
-      ),
-      ActivityAddOn(
-        id: 'addon_3',
-        name: 'Pro Grip Gloves / Socks',
-        description: 'High-grip anti-skid safety pair',
-        price: 100,
-      ),
-    ];
+    if (widget.activity.addOns.isNotEmpty) {
+      _addOns = widget.activity.addOns.map((a) => ActivityAddOn(
+        id: a.id,
+        name: a.name,
+        description: a.description,
+        price: a.price,
+        quantity: 0,
+      )).toList();
+    } else {
+      _addOns = [
+        ActivityAddOn(
+          id: 'addon_1',
+          name: 'Extra 15-Min Extension',
+          description: 'Extend your slot time seamlessly',
+          price: 250,
+        ),
+        ActivityAddOn(
+          id: 'addon_2',
+          name: 'Hydration & Energy Pack',
+          description: 'Red Bull / Gatorade + Mineral water',
+          price: 150,
+        ),
+        ActivityAddOn(
+          id: 'addon_3',
+          name: 'Pro Grip Gloves / Socks',
+          description: 'High-grip anti-skid safety pair',
+          price: 100,
+        ),
+      ];
+    }
   }
 
   @override
   void dispose() {
     _couponController.dispose();
     super.dispose();
+  }
+
+  int get _maxSlotCapacity {
+    for (final s in widget.activity.availableSlots) {
+      if (s.time == _selectedTimeSlot) {
+        return s.availableSlots > 0 ? s.availableSlots : 10;
+      }
+    }
+    return 10;
   }
 
   double get _packageTotal => _selectedPackage.pricePerPerson * _numberOfPeople;
@@ -111,10 +140,6 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
       _isProcessingPayment = true;
     });
 
-    await Future.delayed(const Duration(milliseconds: 1500));
-
-    if (!mounted) return;
-
     final booking = ActivityBooking(
       bookingId: 'ACT-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
       activity: widget.activity,
@@ -132,6 +157,30 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
       isSharedGroupBooking: _isSharedGroupBooking,
       bookedAt: DateTime.now(),
     );
+
+    try {
+      await _activityRepo.createBooking(booking);
+    } catch (_) {}
+
+    // Synchronize to UnifiedBooking in PlazaGlobalState
+    PlazaGlobalState.instance.addBooking(
+      UnifiedBooking(
+        id: booking.bookingId,
+        title: widget.activity.title,
+        subtitle: '$_numberOfPeople Guests • ${_selectedPackage.name}',
+        date: _selectedDate,
+        time: _selectedTimeSlot,
+        location: widget.activity.venueName.isNotEmpty ? widget.activity.venueName : widget.activity.location,
+        type: UnifiedBookingType.activity,
+        status: BookingStatus.upcoming,
+        totalAmount: _grandTotal,
+        confirmationCode: booking.bookingId,
+        imageUrl: widget.activity.coverImageUrl,
+        activityBooking: booking,
+      ),
+    );
+
+    if (!mounted) return;
 
     Navigator.pushReplacement(
       context,
@@ -292,7 +341,14 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
                   children: widget.activity.availableSlots.map((slot) {
                     final isSelected = _selectedTimeSlot == slot.time;
                     return GestureDetector(
-                      onTap: () => setState(() => _selectedTimeSlot = slot.time),
+                      onTap: () {
+                        setState(() {
+                          _selectedTimeSlot = slot.time;
+                          if (_numberOfPeople > _maxSlotCapacity) {
+                            _numberOfPeople = _maxSlotCapacity;
+                          }
+                        });
+                      },
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         decoration: BoxDecoration(
@@ -370,8 +426,16 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
                               ),
                               GestureDetector(
                                 onTap: () {
-                                  if (_numberOfPeople < 14) {
+                                  if (_numberOfPeople < _maxSlotCapacity) {
                                     setState(() => _numberOfPeople++);
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Maximum $_maxSlotCapacity spots available for this time slot'),
+                                        backgroundColor: AppColors.surfaceElevated,
+                                        duration: const Duration(seconds: 1),
+                                      ),
+                                    );
                                   }
                                 },
                                 child: Container(

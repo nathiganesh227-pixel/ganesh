@@ -514,10 +514,26 @@ export class BookingsService {
       const act = await manager.findOne(ActivityEntity, {
         where: { id: payload.activityId },
       });
-      if (!act) throw new NotFoundException('Activity not found');
+      if (!act || !act.isPublished) throw new NotFoundException('Activity not found or unpublished');
 
       const pkg = act.packages?.find((p) => p.id === payload.packageId);
       if (!pkg) throw new NotFoundException('Package not found');
+
+      if (act.timeSlots && act.timeSlots.length > 0 && payload.timeSlot) {
+        const slot = act.timeSlots.find((s) => s.time === payload.timeSlot);
+        if (slot) {
+          if (slot.availableSlots < payload.numberOfPeople) {
+            throw new BadRequestException(
+              `Not enough available spots for slot ${payload.timeSlot}. Only ${slot.availableSlots} remaining.`,
+            );
+          }
+          slot.availableSlots -= payload.numberOfPeople;
+          if (slot.availableSlots <= 2) {
+            slot.isFillingFast = true;
+          }
+          await manager.save(ActivityEntity, act);
+        }
+      }
 
       let addOnsTotal = 0;
       if (payload.addOnIds && payload.addOnIds.length > 0) {
