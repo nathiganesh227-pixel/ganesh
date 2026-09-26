@@ -10,11 +10,37 @@ export class EventsService {
     private readonly repo: Repository<EventEntity>,
   ) {}
 
-  async findAll(category?: string): Promise<EventEntity[]> {
-    if (category) {
-      return this.repo.find({ where: { category, isPublished: true } });
+  async findAll(category?: string, q?: string, city?: string): Promise<EventEntity[]> {
+    let list = await this.repo.find({ where: { isPublished: true } });
+
+    if (category && category.trim().length > 0) {
+      const cat = category.trim().toLowerCase();
+      list = list.filter((e) => e.category?.toLowerCase().includes(cat));
     }
-    return this.repo.find({ where: { isPublished: true } });
+
+    if (city && city.trim().length > 0) {
+      const c = city.trim().toLowerCase();
+      list = list.filter(
+        (e) => e.location?.toLowerCase().includes(c) || e.venue?.toLowerCase().includes(c),
+      );
+    }
+
+    if (q && q.trim().length > 0) {
+      const query = q.trim().toLowerCase();
+      list = list.filter(
+        (e) =>
+          e.title?.toLowerCase().includes(query) ||
+          e.tagline?.toLowerCase().includes(query) ||
+          e.description?.toLowerCase().includes(query) ||
+          e.venue?.toLowerCase().includes(query) ||
+          e.location?.toLowerCase().includes(query) ||
+          e.category?.toLowerCase().includes(query) ||
+          e.languages?.toLowerCase().includes(query) ||
+          e.performers?.some((p) => p.name?.toLowerCase().includes(query)),
+      );
+    }
+
+    return list;
   }
 
   async findOne(id: string): Promise<EventEntity> {

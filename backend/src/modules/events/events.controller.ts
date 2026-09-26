@@ -10,8 +10,12 @@ export class EventsController {
 
   @Get()
   @ApiOperation({ summary: 'Get all events' })
-  async findAll(@Query('category') category?: string): Promise<EventEntity[]> {
-    return this.eventsService.findAll(category);
+  async findAll(
+    @Query('category') category?: string,
+    @Query('q') q?: string,
+    @Query('city') city?: string,
+  ): Promise<EventEntity[]> {
+    return this.eventsService.findAll(category, q, city);
   }
 
   @Get(':id')

@@ -1,10 +1,15 @@
+import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_gradients.dart';
 import '../../core/constants/app_typography.dart';
+import '../../core/data/plaza_global_state.dart';
 import '../../core/models/event.dart';
+import '../../core/models/unified_booking.dart';
+import '../../core/repositories/event_repository.dart';
+import '../../core/repositories/repository_provider.dart';
 import '../../core/widgets/glass_button.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/plaza_image.dart';
@@ -12,10 +17,12 @@ import 'event_confirmation_screen.dart';
 
 class EventTicketScreen extends StatefulWidget {
   final PlazaEvent event;
+  final EventRepository? repository;
 
   const EventTicketScreen({
     super.key,
     required this.event,
+    this.repository,
   });
 
   @override
@@ -23,24 +30,39 @@ class EventTicketScreen extends StatefulWidget {
 }
 
 class _EventTicketScreenState extends State<EventTicketScreen> {
+  late final EventRepository _eventRepo;
   late EventTicketTier _selectedTier;
   int _quantity = 1;
   final TextEditingController _couponController = TextEditingController();
   String? _appliedCoupon;
   double _discountAmount = 0;
-  String _selectedPaymentMethod = 'UPI / Google Pay';
+  final String _selectedPaymentMethod = 'UPI / Google Pay';
   bool _isProcessingPayment = false;
 
   @override
   void initState() {
     super.initState();
-    _selectedTier = widget.event.ticketTiers.first;
+    _eventRepo = widget.repository ?? RepositoryProvider.instance.eventRepo;
+    _selectedTier = widget.event.ticketTiers.isNotEmpty
+        ? widget.event.ticketTiers.first
+        : const EventTicketTier(
+            id: 'tier_ga',
+            name: 'General Admission',
+            description: 'Standard access to the event',
+            price: 999,
+            remainingCount: 50,
+          );
   }
 
   @override
   void dispose() {
     _couponController.dispose();
     super.dispose();
+  }
+
+  int get _maxAllowedQuantity {
+    if (_selectedTier.remainingCount <= 0) return 1;
+    return min(10, _selectedTier.remainingCount);
   }
 
   double get _subtotal => _selectedTier.price * _quantity;
@@ -74,17 +96,16 @@ class _EventTicketScreenState extends State<EventTicketScreen> {
     }
   }
 
-  void _handlePayment() async {
+  Future<void> _handlePayment() async {
+    if (_isProcessingPayment) return;
+
     setState(() {
       _isProcessingPayment = true;
     });
 
-    await Future.delayed(const Duration(milliseconds: 1500));
-
-    if (!mounted) return;
-
+    final bookingId = 'EVT-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
     final booking = EventBooking(
-      bookingId: 'EVT-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
+      bookingId: bookingId,
       event: widget.event,
       date: widget.event.eventDate,
       ticketTier: _selectedTier,
@@ -98,17 +119,48 @@ class _EventTicketScreenState extends State<EventTicketScreen> {
       bookedAt: DateTime.now(),
     );
 
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) => EventConfirmationScreen(booking: booking),
+    try {
+      await _eventRepo.bookTickets(booking);
+    } catch (_) {}
+
+    // Add to Global user bookings
+    PlazaGlobalState.instance.addBooking(
+      UnifiedBooking(
+        id: bookingId,
+        type: UnifiedBookingType.event,
+        title: widget.event.title,
+        subtitle: '${booking.quantity}x ${booking.ticketTier.name}',
+        location: '${widget.event.venue}, ${widget.event.location}',
+        date: booking.date,
+        time: widget.event.time,
+        imageUrl: widget.event.posterUrl,
+        status: BookingStatus.upcoming,
+        totalAmount: booking.grandTotal,
+        confirmationCode: bookingId,
+        seatOrSlotInfo: '${booking.quantity} Passes (${booking.ticketTier.name})',
+        eventBooking: booking,
       ),
     );
+
+    if (mounted) {
+      setState(() {
+        _isProcessingPayment = false;
+      });
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => EventConfirmationScreen(booking: booking),
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final dateStr = DateFormat('EEE, d MMM yyyy').format(widget.event.eventDate);
+    final tiers = widget.event.ticketTiers.isNotEmpty
+        ? widget.event.ticketTiers
+        : [_selectedTier];
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -191,10 +243,21 @@ class _EventTicketScreenState extends State<EventTicketScreen> {
                 // 1. Select Ticket Category
                 Text('1. Select Ticket Category', style: AppTypography.headingSmall),
                 const SizedBox(height: 10),
-                ...widget.event.ticketTiers.map((tier) {
+                ...tiers.map((tier) {
                   final isSelected = _selectedTier.id == tier.id;
+                  final isSoldOut = tier.remainingCount == 0;
+
                   return GestureDetector(
-                    onTap: () => setState(() => _selectedTier = tier),
+                    onTap: isSoldOut
+                        ? null
+                        : () {
+                            setState(() {
+                              _selectedTier = tier;
+                              if (_quantity > _maxAllowedQuantity) {
+                                _quantity = _maxAllowedQuantity;
+                              }
+                            });
+                          },
                     child: Container(
                       margin: const EdgeInsets.only(bottom: 10),
                       child: GlassCard(
@@ -228,31 +291,44 @@ class _EventTicketScreenState extends State<EventTicketScreen> {
                               tier.description,
                               style: AppTypography.bodySmall.copyWith(fontSize: 11),
                             ),
-                            if (tier.perks.isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 4,
-                                children: tier.perks
-                                    .map(
-                                      (p) => Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0x15FFFFFF),
-                                          borderRadius: BorderRadius.circular(6),
-                                        ),
-                                        child: Text(
-                                          p,
-                                          style: AppTypography.bodySmall.copyWith(
-                                            fontSize: 9,
-                                            color: AppColors.textSecondary,
-                                          ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  tier.remainingCount > 0
+                                      ? '${tier.remainingCount} tickets remaining'
+                                      : 'Sold Out',
+                                  style: AppTypography.bodySmall.copyWith(
+                                    fontSize: 10,
+                                    color: tier.remainingCount > 0 && tier.remainingCount <= 20
+                                        ? AppColors.alertRed
+                                        : (tier.remainingCount > 0
+                                            ? AppColors.liveGreen
+                                            : AppColors.textMuted),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                if (tier.perks.isNotEmpty)
+                                  Wrap(
+                                    spacing: 4,
+                                    children: tier.perks.take(2).map((p) => Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0x15FFFFFF),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        p,
+                                        style: AppTypography.bodySmall.copyWith(
+                                          fontSize: 9,
+                                          color: AppColors.textSecondary,
                                         ),
                                       ),
-                                    )
-                                    .toList(),
-                              ),
-                            ],
+                                    )).toList(),
+                                  ),
+                              ],
+                            ),
                           ],
                         ),
                       ),
@@ -300,8 +376,16 @@ class _EventTicketScreenState extends State<EventTicketScreen> {
                           ),
                           GestureDetector(
                             onTap: () {
-                              if (_quantity < 10) {
+                              if (_quantity < _maxAllowedQuantity) {
                                 setState(() => _quantity++);
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Maximum $_maxAllowedQuantity passes allowed per transaction'),
+                                    backgroundColor: AppColors.surfaceElevated,
+                                    duration: const Duration(seconds: 1),
+                                  ),
+                                );
                               }
                             },
                             child: Container(
@@ -322,83 +406,43 @@ class _EventTicketScreenState extends State<EventTicketScreen> {
 
                 const SizedBox(height: 20),
 
-                // Apply Promo Code
+                // 3. Coupon Code Card
                 GlassCard(
                   padding: const EdgeInsets.all(14),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          height: 44,
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          decoration: BoxDecoration(
-                            color: AppColors.glassFillMedium,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppColors.glassBorderSubtle),
-                          ),
-                          child: TextField(
-                            controller: _couponController,
-                            textCapitalization: TextCapitalization.characters,
-                            style: AppTypography.labelMedium,
-                            decoration: InputDecoration(
-                              hintText: 'Enter PLAZAVIP',
-                              hintStyle: AppTypography.bodySmall,
-                              border: InputBorder.none,
-                              isDense: true,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      GlassButton(
-                        text: _appliedCoupon != null ? 'Applied ✓' : 'Apply',
-                        variant: _appliedCoupon != null
-                            ? GlassButtonVariant.secondary
-                            : GlassButtonVariant.primary,
-                        height: 44,
-                        onPressed: () => _applyCoupon(_couponController.text.trim()),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                // Bill Breakdown
-                GlassCard(
-                  padding: const EdgeInsets.all(16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Payment Breakdown', style: AppTypography.headingSmall),
-                      const SizedBox(height: 12),
-                      _buildBillRow('Ticket Total ($_quantity passes)', '₹${_subtotal.toInt()}'),
+                      Text('PROMO CODE', style: AppTypography.labelSmall),
                       const SizedBox(height: 8),
-                      _buildBillRow('Convenience & Platform Fee', '₹${_platformFee.toInt()}'),
-                      const SizedBox(height: 8),
-                      _buildBillRow('Integrated GST (18%)', '₹${_taxes.toStringAsFixed(2)}'),
-                      if (_discountAmount > 0) ...[
-                        const SizedBox(height: 8),
-                        _buildBillRow(
-                          'Promo Discount ($_appliedCoupon)',
-                          '-₹${_discountAmount.toInt()}',
-                          isDiscount: true,
-                        ),
-                      ],
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 10),
-                        child: Divider(color: Color(0x20FFFFFF), height: 1),
-                      ),
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('Grand Total', style: AppTypography.headingMedium),
-                          Text(
-                            '₹${_grandTotal.toStringAsFixed(2)}',
-                            style: AppTypography.priceTag.copyWith(
-                              fontSize: 20,
-                              color: AppColors.accentAmber,
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              decoration: BoxDecoration(
+                                color: const Color(0x15FFFFFF),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: AppColors.glassBorderSubtle),
+                              ),
+                              child: TextField(
+                                controller: _couponController,
+                                style: AppTypography.labelMedium,
+                                textCapitalization: TextCapitalization.characters,
+                                decoration: InputDecoration(
+                                  hintText: 'Enter PLAZAVIP',
+                                  hintStyle: AppTypography.bodySmall.copyWith(color: AppColors.textMuted),
+                                  border: InputBorder.none,
+                                ),
+                              ),
                             ),
+                          ),
+                          const SizedBox(width: 10),
+                          GlassButton(
+                            text: 'Apply',
+                            variant: GlassButtonVariant.secondary,
+                            height: 44,
+                            width: 80,
+                            onPressed: () => _applyCoupon(_couponController.text.trim()),
                           ),
                         ],
                       ),
@@ -408,20 +452,51 @@ class _EventTicketScreenState extends State<EventTicketScreen> {
 
                 const SizedBox(height: 20),
 
-                // Payment Selector
-                Text('Select Payment Method', style: AppTypography.headingSmall),
-                const SizedBox(height: 10),
-                _buildPaymentOption('UPI / Google Pay', Icons.account_balance_wallet_outlined),
-                _buildPaymentOption('PhonePe / Paytm', Icons.phone_android_rounded),
-                _buildPaymentOption('Credit / Debit Card', Icons.credit_card_rounded),
-                _buildPaymentOption('Apple Pay', Icons.apple_rounded),
+                // 4. Price Breakdown & Summary
+                GlassCard(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Booking Summary', style: AppTypography.headingSmall),
+                      const SizedBox(height: 12),
+                      _buildPriceRow('Ticket Subtotal ($_quantity passes)', '₹${_subtotal.toInt()}'),
+                      const SizedBox(height: 8),
+                      _buildPriceRow('Booking & Platform Fee', '₹${_platformFee.toInt()}'),
+                      const SizedBox(height: 8),
+                      _buildPriceRow('GST & Entertainment Tax (18%)', '₹${_taxes.toInt()}'),
+                      if (_discountAmount > 0) ...[
+                        const SizedBox(height: 8),
+                        _buildPriceRow(
+                          'Promo Discount ($_appliedCoupon)',
+                          '-₹${_discountAmount.toInt()}',
+                          isDiscount: true,
+                        ),
+                      ],
+                      const Divider(color: Color(0x20FFFFFF), height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Grand Total', style: AppTypography.labelLarge.copyWith(fontSize: 16)),
+                          Text(
+                            '₹${_grandTotal.toInt()}',
+                            style: AppTypography.priceTag.copyWith(
+                              fontSize: 22,
+                              color: AppColors.accentAmber,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
 
-                const SizedBox(height: 130),
+                const SizedBox(height: 140),
               ],
             ),
           ),
 
-          // Bottom Pay Bar
+          // Bottom Bar
           Positioned(
             bottom: 0,
             left: 0,
@@ -438,12 +513,12 @@ class _EventTicketScreenState extends State<EventTicketScreen> {
                         ? MediaQuery.of(context).padding.bottom + 8
                         : 18,
                   ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xF0090D18),
-                    border: const Border(
+                  decoration: const BoxDecoration(
+                    color: Color(0xF0090D18),
+                    border: Border(
                       top: BorderSide(color: AppColors.glassBorder, width: 1.0),
                     ),
-                    boxShadow: const [
+                    boxShadow: [
                       BoxShadow(
                         color: Color(0x80000000),
                         blurRadius: 24,
@@ -457,25 +532,24 @@ class _EventTicketScreenState extends State<EventTicketScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text('$_quantity PASS${_quantity > 1 ? 'ES' : ''}', style: AppTypography.labelSmall),
+                          Text('$_quantity PASSES • ${_selectedTier.name}', style: AppTypography.labelSmall),
                           const SizedBox(height: 2),
                           Text(
-                            '₹${_grandTotal.toStringAsFixed(2)}',
+                            '₹${_grandTotal.toInt()}',
                             style: AppTypography.priceTag.copyWith(
-                              fontSize: 22,
+                              fontSize: 20,
                               color: Colors.white,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(width: 20),
+                      const SizedBox(width: 16),
                       Expanded(
                         child: GlassButton(
-                          text: _isProcessingPayment ? 'Authorizing...' : 'Pay ₹${_grandTotal.toInt()}',
-                          icon: Icons.lock_outline_rounded,
+                          text: _isProcessingPayment ? 'Processing...' : 'Pay & Confirm',
+                          icon: _isProcessingPayment ? null : Icons.lock_outline_rounded,
                           variant: GlassButtonVariant.primary,
                           height: 52,
-                          isLoading: _isProcessingPayment,
                           onPressed: _isProcessingPayment ? null : _handlePayment,
                         ),
                       ),
@@ -490,60 +564,15 @@ class _EventTicketScreenState extends State<EventTicketScreen> {
     );
   }
 
-  Widget _buildPaymentOption(String title, IconData icon) {
-    final isSelected = _selectedPaymentMethod == title;
-    return GestureDetector(
-      onTap: () => setState(() => _selectedPaymentMethod = title),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        child: GlassCard(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          borderColor: isSelected ? AppColors.secondaryViolet : AppColors.glassBorderSubtle,
-          backgroundColor: isSelected ? const Color(0x258B5CF6) : null,
-          child: Row(
-            children: [
-              Icon(icon, color: isSelected ? AppColors.secondaryViolet : AppColors.textSecondary, size: 20),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  title,
-                  style: AppTypography.labelLarge.copyWith(
-                    color: isSelected ? Colors.white : AppColors.textPrimary,
-                  ),
-                ),
-              ),
-              Container(
-                width: 18,
-                height: 18,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: isSelected ? AppColors.secondaryViolet : AppColors.textMuted,
-                    width: isSelected ? 5 : 1.5,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBillRow(String label, String value, {bool isDiscount = false}) {
+  Widget _buildPriceRow(String label, String value, {bool isDiscount = false}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          label,
-          style: AppTypography.bodySmall.copyWith(
-            color: isDiscount ? AppColors.liveGreen : AppColors.textSecondary,
-          ),
-        ),
+        Text(label, style: AppTypography.bodySmall.copyWith(color: AppColors.textSecondary)),
         Text(
           value,
           style: AppTypography.labelMedium.copyWith(
-            color: isDiscount ? AppColors.liveGreen : AppColors.textPrimary,
+            color: isDiscount ? AppColors.liveGreen : Colors.white,
             fontWeight: FontWeight.w600,
           ),
         ),
