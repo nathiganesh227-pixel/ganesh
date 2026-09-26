@@ -36,9 +36,12 @@ class ApiEndpoints {
   static String sportsVenueDetails(String id) => '/sports/$id';
   static const String sportsBookings = '/sports/bookings';
 
-  // Unified Bookings
+  // Unified Bookings & Payments
   static const String bookings = '/bookings';
   static String bookingDetails(String id) => '/bookings/$id';
+  static const String bookingQuote = '/bookings/quote';
+  static const String paymentVerify = '/payments/verify';
+  static const String paymentFailed = '/payments/failed';
 
   // Plans, Rewards, Notifications & Search
   static const String plans = '/plans';

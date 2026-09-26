@@ -85,7 +85,7 @@ class _RoomBookingScreenState extends State<RoomBookingScreen> {
     return sum;
   }
 
-  double get _taxesAndFees => (_roomTotal + _addOnsTotal) * 0.18;
+  double get _taxesAndFees => ((_roomTotal + _addOnsTotal) * 0.12).roundToDouble();
 
   double get _grandTotal => _roomTotal + _addOnsTotal + _taxesAndFees;
 
@@ -659,7 +659,7 @@ class _RoomBookingScreenState extends State<RoomBookingScreen> {
                         _buildPriceRow('Curated Add-ons', '₹${_addOnsTotal.toInt()}'),
                       ],
                       const SizedBox(height: 8),
-                      _buildPriceRow('Luxury & Hospitality GST (18%)', '₹${_taxesAndFees.toInt()}'),
+                      _buildPriceRow('Luxury & Hospitality GST (12%)', '₹${_taxesAndFees.toInt()}'),
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 10),
                         child: Divider(color: AppColors.glassBorder, height: 1),

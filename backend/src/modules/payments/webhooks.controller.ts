@@ -8,13 +8,18 @@ import {
   Logger,
   HttpCode,
   HttpStatus,
+  Optional,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiHeader } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RazorpayAdapter } from './providers/razorpay.adapter';
 import { WebhookEventEntity } from '../../database/entities/webhook-event.entity';
-import { BookingEntity, BookingStatus } from '../../database/entities/booking.entity';
+import { BookingEntity, BookingStatus, BookingType } from '../../database/entities/booking.entity';
+import { PaymentEntity, PaymentStatus } from '../../database/entities/payment.entity';
+import { User } from '../../database/entities/user.entity';
+import { EventEntity } from '../../database/entities/event.entity';
+import { ActivityEntity } from '../../database/entities/activity.entity';
 import { TwilioSmsAdapter } from '../notifications/providers/twilio-sms.adapter';
 
 @ApiTags('webhooks')
@@ -29,6 +34,18 @@ export class WebhooksController {
     @InjectRepository(BookingEntity)
     private readonly bookingRepo: Repository<BookingEntity>,
     private readonly notificationAdapter: TwilioSmsAdapter,
+    @Optional()
+    @InjectRepository(PaymentEntity)
+    private readonly paymentRepo?: Repository<PaymentEntity>,
+    @Optional()
+    @InjectRepository(User)
+    private readonly userRepo?: Repository<User>,
+    @Optional()
+    @InjectRepository(EventEntity)
+    private readonly eventRepo?: Repository<EventEntity>,
+    @Optional()
+    @InjectRepository(ActivityEntity)
+    private readonly activityRepo?: Repository<ActivityEntity>,
   ) {}
 
   @Post('razorpay')
@@ -111,9 +128,11 @@ export class WebhooksController {
 
     const booking = await this.bookingRepo.findOne({ where: { id: bookingId } });
     if (booking) {
+      const isFirstConfirmation = booking.status === BookingStatus.PENDING || !booking.metadata?.paymentVerified;
       booking.status = BookingStatus.UPCOMING;
       booking.metadata = {
         ...booking.metadata,
+        paymentVerified: true,
         payment: {
           paymentId: paymentEntity?.id || `PAY_${Date.now()}`,
           orderId: orderEntity?.id,
@@ -123,6 +142,45 @@ export class WebhooksController {
           capturedAt: new Date().toISOString(),
         },
       };
+
+      // Update dedicated PaymentEntity
+      if (this.paymentRepo) {
+        let payment = await this.paymentRepo.findOne({
+          where: [
+            { bookingId },
+            { providerOrderId: orderEntity?.id },
+            { id: paymentEntity?.id },
+          ],
+        });
+        if (payment) {
+          payment.status = PaymentStatus.CAPTURED;
+          payment.providerPaymentId = paymentEntity?.id;
+          await this.paymentRepo.save(payment);
+        }
+      }
+
+      // Idempotent rewards awarding
+      if (isFirstConfirmation && !booking.metadata?.rewardAwarded && this.userRepo) {
+        let pointsToAward = 0;
+        if (booking.type === BookingType.MOVIE) {
+          pointsToAward = Math.round(booking.totalPrice * 0.1);
+        } else if (booking.type === BookingType.DINING) {
+          pointsToAward = 100;
+        } else {
+          pointsToAward = Math.round(booking.totalPrice * 0.05);
+        }
+
+        if (pointsToAward > 0) {
+          const user = await this.userRepo.findOne({ where: { id: booking.userId } });
+          if (user) {
+            user.rewardPoints = (user.rewardPoints || 0) + pointsToAward;
+            await this.userRepo.save(user);
+            booking.metadata.rewardAwarded = true;
+            booking.metadata.rewardPoints = pointsToAward;
+          }
+        }
+      }
+
       await this.bookingRepo.save(booking);
 
       // Dispatch automated SMS confirmation
@@ -148,6 +206,39 @@ export class WebhooksController {
           failureReason: paymentEntity?.error_description || 'Payment authorization failed',
         };
         await this.bookingRepo.save(booking);
+
+        // Update dedicated PaymentEntity
+        if (this.paymentRepo) {
+          const payment = await this.paymentRepo.findOne({ where: { bookingId } });
+          if (payment) {
+            payment.status = PaymentStatus.FAILED;
+            payment.failureReason = paymentEntity?.error_description || 'Payment authorization failed';
+            await this.paymentRepo.save(payment);
+          }
+        }
+
+        // Restore inventory if applicable
+        if (booking.type === BookingType.EVENT && booking.metadata?.eventId && booking.metadata?.tierId && this.eventRepo) {
+          const event = await this.eventRepo.findOne({ where: { id: booking.metadata.eventId } });
+          if (event && event.ticketTiers) {
+            const tier = event.ticketTiers.find((t) => t.id === booking.metadata.tierId);
+            if (tier) {
+              tier.remainingCount += booking.metadata.ticketCount || 1;
+              await this.eventRepo.save(event);
+            }
+          }
+        } else if (booking.type === BookingType.ACTIVITY && booking.metadata?.activityId && booking.metadata?.timeSlot && this.activityRepo) {
+          const act = await this.activityRepo.findOne({ where: { id: booking.metadata.activityId } });
+          if (act && act.timeSlots) {
+            const slot = act.timeSlots.find((s) => s.time === booking.metadata.timeSlot);
+            if (slot) {
+              slot.availableSlots += booking.metadata.numberOfPeople || 1;
+              slot.isFillingFast = slot.availableSlots <= 2;
+              await this.activityRepo.save(act);
+            }
+          }
+        }
+
         this.logger.log(`[Webhook] Booking ${booking.id} marked as FAILED`);
       }
     }
@@ -174,7 +265,33 @@ export class WebhooksController {
             processedAt: new Date().toISOString(),
           },
         };
+
+        // Reverse reward points if previously awarded
+        if (booking.metadata?.rewardAwarded && booking.metadata?.rewardPoints && this.userRepo) {
+          const user = await this.userRepo.findOne({ where: { id: booking.userId } });
+          if (user) {
+            user.rewardPoints = Math.max(0, (user.rewardPoints || 0) - booking.metadata.rewardPoints);
+            await this.userRepo.save(user);
+            booking.metadata.rewardAwarded = false;
+            booking.metadata.rewardPointsReversed = true;
+          }
+        }
+
         await this.bookingRepo.save(booking);
+
+        // Update dedicated PaymentEntity
+        if (this.paymentRepo) {
+          const payment = await this.paymentRepo.findOne({
+            where: [{ providerPaymentId: paymentId }, { bookingId: booking.id }],
+          });
+          if (payment) {
+            payment.status = PaymentStatus.REFUNDED;
+            payment.refundAmount = (refundEntity.amount || 0) / 100;
+            payment.refundId = refundEntity.id;
+            await this.paymentRepo.save(payment);
+          }
+        }
+
         this.logger.log(`[Webhook] Booking ${booking.id} marked as CANCELLED with refund ${refundEntity.id}`);
       }
     }

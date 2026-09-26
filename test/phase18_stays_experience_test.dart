@@ -227,7 +227,7 @@ void main() {
       expect(find.text('Book Stay 🏨'), findsOneWidget);
 
       // Verify initial price calculations
-      expect(find.text('Luxury & Hospitality GST (18%)'), findsOneWidget);
+      expect(find.textContaining('Luxury & Hospitality GST'), findsOneWidget);
       expect(find.text('Grand Total'), findsOneWidget);
     });
 

@@ -76,6 +76,42 @@ export class BookingsService {
       };
     }
 
+    // Restore inventory if Event or Activity
+    if (item.type === BookingType.EVENT && item.metadata?.eventId && item.metadata?.tierId) {
+      const eventRepo = this.dataSource.getRepository(EventEntity);
+      const event = await eventRepo.findOne({ where: { id: item.metadata.eventId } });
+      if (event && event.ticketTiers) {
+        const tier = event.ticketTiers.find((t: any) => t.id === item.metadata.tierId);
+        if (tier) {
+          tier.remainingCount += item.metadata.ticketCount || 1;
+          await eventRepo.save(event);
+        }
+      }
+    } else if (item.type === BookingType.ACTIVITY && item.metadata?.activityId && item.metadata?.timeSlot) {
+      const actRepo = this.dataSource.getRepository(ActivityEntity);
+      const act = await actRepo.findOne({ where: { id: item.metadata.activityId } });
+      if (act && act.timeSlots) {
+        const slot = act.timeSlots.find((s: any) => s.time === item.metadata.timeSlot);
+        if (slot) {
+          slot.availableSlots += item.metadata.numberOfPeople || 1;
+          slot.isFillingFast = slot.availableSlots <= 2;
+          await actRepo.save(act);
+        }
+      }
+    }
+
+    // Reverse reward points if awarded
+    if (item.metadata?.rewardAwarded && item.metadata?.rewardPoints) {
+      const userRepo = this.dataSource.getRepository(User);
+      const user = await userRepo.findOne({ where: { id: item.userId } });
+      if (user) {
+        user.rewardPoints = Math.max(0, (user.rewardPoints || 0) - item.metadata.rewardPoints);
+        await userRepo.save(user);
+        item.metadata.rewardAwarded = false;
+        item.metadata.rewardPointsReversed = true;
+      }
+    }
+
     return repo.save(item);
   }
 
@@ -621,18 +657,256 @@ export class BookingsService {
       });
 
       await bookingRepo.save(booking);
-      await this.awardPoints(manager, payload.userId || 'usr_default_1', Math.round(grandTotal * 0.05));
+      await this.awardPoints(manager, payload.userId || 'usr_default_1', Math.round(grandTotal * 0.05), booking);
       return booking;
     });
   }
 
-  private async awardPoints(manager: any, userId: string, points: number) {
+  /**
+   * Server-authoritative quote calculation for all 7 verticals
+   */
+  async calculateQuote(type: string, payload: any): Promise<{
+    type: string;
+    subtotal: number;
+    convenienceFee: number;
+    taxes: number;
+    grandTotal: number;
+    currency: string;
+    breakdown: Record<string, any>;
+  }> {
+    const bookingType = type?.toLowerCase();
+    switch (bookingType) {
+      case 'movie': {
+        let seatPrice = 450;
+        if (payload.theatreId && payload.showtimeId) {
+          const theatreRepo = this.dataSource.getRepository(TheatreEntity);
+          const theatre = await theatreRepo.findOne({ where: { id: payload.theatreId } });
+          const slot = theatre?.showtimes?.find((s: any) => s.id === payload.showtimeId);
+          if (slot?.basePrice) seatPrice = slot.basePrice;
+        }
+        const seatCount = payload.seatIds?.length || payload.seatCount || 1;
+        const subtotal = seatPrice * seatCount;
+        const convenienceFee = 70.0;
+        const taxes = Math.round(subtotal * 0.05);
+        const grandTotal = subtotal + convenienceFee + taxes;
+        return {
+          type: 'movie',
+          subtotal,
+          convenienceFee,
+          taxes,
+          grandTotal,
+          currency: 'INR',
+          breakdown: {
+            seatPrice,
+            seatCount,
+            convenienceFee,
+            taxes,
+            taxRate: '5% GST',
+          },
+        };
+      }
+      case 'dining': {
+        return {
+          type: 'dining',
+          subtotal: 0,
+          convenienceFee: 0,
+          taxes: 0,
+          grandTotal: 0,
+          currency: 'INR',
+          breakdown: {
+            pricingModel: 'COMPLIMENTARY',
+            reservationDeposit: 0,
+          },
+        };
+      }
+      case 'event': {
+        let ticketPrice = 500;
+        let tierName = 'Standard';
+        if (payload.eventId && payload.tierId) {
+          const eventRepo = this.dataSource.getRepository(EventEntity);
+          const event = await eventRepo.findOne({ where: { id: payload.eventId } });
+          const tier = event?.ticketTiers?.find((t: any) => t.id === payload.tierId);
+          if (tier?.price) {
+            ticketPrice = tier.price;
+            tierName = tier.name;
+          }
+        }
+        const ticketCount = payload.ticketCount || 1;
+        const subtotal = ticketPrice * ticketCount;
+        const convenienceFee = Math.round(subtotal * 0.05);
+        const grandTotal = subtotal + convenienceFee;
+        return {
+          type: 'event',
+          subtotal,
+          convenienceFee,
+          taxes: 0,
+          grandTotal,
+          currency: 'INR',
+          breakdown: {
+            ticketPrice,
+            ticketCount,
+            tierName,
+            convenienceFee,
+            feeRate: '5%',
+          },
+        };
+      }
+      case 'activity': {
+        let pricePerPerson = 1200;
+        let addOnsTotal = 0;
+        if (payload.activityId) {
+          const actRepo = this.dataSource.getRepository(ActivityEntity);
+          const act = await actRepo.findOne({ where: { id: payload.activityId } });
+          const pkg = act?.packages?.find((p: any) => p.id === payload.packageId);
+          if (pkg?.pricePerPerson) pricePerPerson = pkg.pricePerPerson;
+          if (payload.addOnIds && payload.addOnIds.length > 0 && act?.addOns) {
+            for (const aId of payload.addOnIds) {
+              const item = act.addOns.find((a: any) => a.id === aId);
+              if (item) addOnsTotal += item.price;
+            }
+          }
+        }
+        const numberOfPeople = payload.numberOfPeople || 1;
+        const subtotal = (pricePerPerson * numberOfPeople) + addOnsTotal;
+        const taxes = Math.round(subtotal * 0.18);
+        const grandTotal = subtotal + taxes;
+        return {
+          type: 'activity',
+          subtotal,
+          convenienceFee: 0,
+          taxes,
+          grandTotal,
+          currency: 'INR',
+          breakdown: {
+            pricePerPerson,
+            numberOfPeople,
+            addOnsTotal,
+            taxes,
+            taxRate: '18% GST',
+          },
+        };
+      }
+      case 'shopping': {
+        const prodRepo = this.dataSource.getRepository(ProductEntity);
+        let itemsTotal = 0;
+        const items = payload.items || [];
+        for (const item of items) {
+          const prod = await prodRepo.findOne({ where: { id: item.productId } });
+          if (prod) {
+            let unitPrice = prod.price;
+            if (item.variantId && prod.variants) {
+              const variant = prod.variants.find((v: any) => v.id === item.variantId);
+              if (variant) unitPrice += variant.priceDelta;
+            }
+            itemsTotal += unitPrice * (item.quantity || 1);
+          }
+        }
+        const platformFee = 29.0;
+        const gst = Math.round(itemsTotal * 0.05);
+        const grandTotal = itemsTotal + platformFee + gst;
+        return {
+          type: 'shopping',
+          subtotal: itemsTotal,
+          convenienceFee: platformFee,
+          taxes: gst,
+          grandTotal,
+          currency: 'INR',
+          breakdown: {
+            itemsCount: items.length,
+            platformFee,
+            taxes: gst,
+            taxRate: '5% GST',
+          },
+        };
+      }
+      case 'stay': {
+        let pricePerNight = 3500;
+        let addOnsTotal = 0;
+        if (payload.hotelId) {
+          const hotelRepo = this.dataSource.getRepository(HotelEntity);
+          const hotel = await hotelRepo.findOne({ where: { id: payload.hotelId } });
+          const room = hotel?.rooms?.find((r: any) => r.id === payload.roomTypeId || r.id === payload.roomId);
+          if (room?.pricePerNight) pricePerNight = room.pricePerNight;
+          if (payload.addOnIds && payload.addOnIds.length > 0 && hotel?.addOns) {
+            for (const aId of payload.addOnIds) {
+              const item = hotel.addOns.find((a: any) => a.id === aId);
+              if (item) addOnsTotal += item.price;
+            }
+          }
+        }
+        const nights = payload.nights || 1;
+        const roomsCount = payload.roomsCount || 1;
+        const roomTotal = pricePerNight * nights * roomsCount;
+        const subtotal = roomTotal + addOnsTotal;
+        const taxesAndFees = Math.round(subtotal * 0.12);
+        const grandTotal = subtotal + taxesAndFees;
+        return {
+          type: 'stay',
+          subtotal,
+          convenienceFee: 0,
+          taxes: taxesAndFees,
+          grandTotal,
+          currency: 'INR',
+          breakdown: {
+            pricePerNight,
+            nights,
+            roomsCount,
+            addOnsTotal,
+            taxesAndFees,
+            taxRate: '12% GST',
+          },
+        };
+      }
+      case 'sports': {
+        let slotPrice = 1200;
+        let addOnsTotal = 0;
+        if (payload.venueId) {
+          const venueRepo = this.dataSource.getRepository(SportsVenueEntity);
+          const venue = await venueRepo.findOne({ where: { id: payload.venueId } });
+          const slot = venue?.slots?.find((s: any) => s.id === payload.slotId);
+          if (slot?.price) slotPrice = slot.price;
+          if (payload.addOnIds && payload.addOnIds.length > 0 && venue?.addOns) {
+            for (const aId of payload.addOnIds) {
+              const item = venue.addOns.find((a: any) => a.id === aId);
+              if (item) addOnsTotal += item.price;
+            }
+          }
+        }
+        const convenienceFee = 50.0;
+        const grandTotal = slotPrice + addOnsTotal + convenienceFee;
+        return {
+          type: 'sports',
+          subtotal: slotPrice + addOnsTotal,
+          convenienceFee,
+          taxes: 0,
+          grandTotal,
+          currency: 'INR',
+          breakdown: {
+            slotPrice,
+            addOnsTotal,
+            convenienceFee,
+          },
+        };
+      }
+      default:
+        throw new BadRequestException(`Unsupported vertical quote type: ${type}`);
+    }
+  }
+
+  private async awardPoints(manager: any, userId: string, points: number, booking?: BookingEntity) {
     if (points <= 0) return;
     const userRepo = manager.getRepository(User);
     const user = await userRepo.findOne({ where: { id: userId } });
     if (user) {
       user.rewardPoints = (user.rewardPoints || 0) + points;
       await userRepo.save(user);
+    }
+    if (booking) {
+      booking.metadata = {
+        ...(booking.metadata || {}),
+        rewardAwarded: true,
+        rewardPoints: points,
+      };
     }
   }
 }

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Param, Query, Body, Headers, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Param, Query, Body, Headers, UseGuards, Request, HttpCode, HttpStatus, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiHeader } from '@nestjs/swagger';
 import { BookingsService } from './bookings.service';
 import { IdempotencyService } from './idempotency.service';
@@ -12,6 +12,16 @@ export class BookingsController {
     private readonly service: BookingsService,
     private readonly idempotencyService: IdempotencyService,
   ) {}
+
+  @Post('quote')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Calculate server-authoritative pricing quote for any vertical' })
+  async calculateQuote(@Body() body: any) {
+    if (!body || !body.type) {
+      throw new BadRequestException('Missing booking type for quote calculation');
+    }
+    return this.service.calculateQuote(body.type, body);
+  }
 
   @Get()
   @UseGuards(JwtAuthGuard)

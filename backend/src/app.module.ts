@@ -24,6 +24,7 @@ import { IdempotencyRecordEntity } from './database/entities/idempotency-record.
 import { AuditLogEntity } from './database/entities/audit-log.entity';
 import { ScreenEntity } from './database/entities/screen.entity';
 import { ShowEntity } from './database/entities/show.entity';
+import { PaymentEntity } from './database/entities/payment.entity';
 
 import { MoviesModule } from './modules/movies/movies.module';
 import { DiningModule } from './modules/dining/dining.module';
@@ -93,6 +94,7 @@ import { AdminModule } from './modules/admin/admin.module';
         AuditLogEntity,
         ScreenEntity,
         ShowEntity,
+        PaymentEntity,
       ],
       synchronize:
         process.env.DB_SYNC === 'true' ||

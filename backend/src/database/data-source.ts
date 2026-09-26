@@ -20,6 +20,7 @@ import { IdempotencyRecordEntity } from './entities/idempotency-record.entity';
 import { AuditLogEntity } from './entities/audit-log.entity';
 import { ScreenEntity } from './entities/screen.entity';
 import { ShowEntity } from './entities/show.entity';
+import { PaymentEntity } from './entities/payment.entity';
 
 dotenv.config();
 
@@ -42,6 +43,7 @@ export const ALL_ENTITIES = [
   AuditLogEntity,
   ScreenEntity,
   ShowEntity,
+  PaymentEntity,
 ];
 
 export const AppDataSource = new DataSource(
