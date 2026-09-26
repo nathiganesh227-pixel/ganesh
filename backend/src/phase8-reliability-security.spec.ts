@@ -82,11 +82,21 @@ describe('Phase 8 Production Reliability, Security & Concurrency Verification', 
             });
           }
           if (entity.name === 'HotelEntity' || entity.toString().includes('Hotel')) {
+            const queryId = (options as any)?.where?.id;
+            if (queryId === 'hotel_unpublished') {
+              return Promise.resolve({
+                id: 'hotel_unpublished',
+                name: 'Unpublished Villa',
+                isPublished: false,
+                rooms: [{ id: 'room_villa', name: 'Private Villa', pricePerNight: 20000, isAvailable: true, maxGuests: 4 }],
+              });
+            }
             return Promise.resolve({
               id: 'hotel_falaknuma',
               name: 'Taj Falaknuma Palace',
               location: 'Engine Bowli, Falaknuma',
-              rooms: [{ id: 'room_palace', name: 'Palace Room', pricePerNight: 35000 }],
+              isPublished: true,
+              rooms: [{ id: 'room_palace', name: 'Palace Room', pricePerNight: 35000, isAvailable: true, maxGuests: 2 }],
               addOns: [{ id: 'addon_breakfast', name: 'Royal Breakfast Buffet', price: 2500 }],
             });
           }
@@ -387,6 +397,71 @@ describe('Phase 8 Production Reliability, Security & Concurrency Verification', 
           fulfillmentType: 'Store Pickup',
         }),
       ).rejects.toThrow('is out of stock');
+    });
+
+    it('calculates stay booking grand total server-side and overrides client price tampering', async () => {
+      const booking = await bookingsService.createStayBooking({
+        userId: 'usr_userA',
+        hotelId: 'hotel_falaknuma',
+        roomTypeId: 'room_palace',
+        checkInDate: '2026-10-01',
+        checkOutDate: '2026-10-03',
+        nights: 2,
+        guestsCount: 2,
+        roomsCount: 1,
+        addOnIds: ['addon_breakfast'],
+        ...({ totalPrice: 10.0 } as any), // Client tampering attempt
+      });
+
+      // 35000 * 2 nights * 1 room = 70000 + 2500 add-on = 72500 + 12% GST (8700) = 81200
+      expect(booking.totalPrice).toBe(81200);
+      expect(booking.metadata.payment.amount).toBe(81200);
+      expect(booking.metadata.payment.status).toBe('COMPLETED');
+    });
+
+    it('rejects stay booking when hotel is unpublished', async () => {
+      await expect(
+        bookingsService.createStayBooking({
+          userId: 'usr_userA',
+          hotelId: 'hotel_unpublished',
+          roomTypeId: 'room_villa',
+          checkInDate: '2026-10-01',
+          checkOutDate: '2026-10-03',
+          nights: 2,
+          guestsCount: 2,
+          roomsCount: 1,
+        }),
+      ).rejects.toThrow('not found or unpublished');
+    });
+
+    it('rejects stay booking when check-out date is not after check-in date', async () => {
+      await expect(
+        bookingsService.createStayBooking({
+          userId: 'usr_userA',
+          hotelId: 'hotel_falaknuma',
+          roomTypeId: 'room_palace',
+          checkInDate: '2026-10-05',
+          checkOutDate: '2026-10-02',
+          nights: 1,
+          guestsCount: 2,
+          roomsCount: 1,
+        }),
+      ).rejects.toThrow('Check-out date must be after check-in date');
+    });
+
+    it('rejects stay booking when guest count exceeds room capacity', async () => {
+      await expect(
+        bookingsService.createStayBooking({
+          userId: 'usr_userA',
+          hotelId: 'hotel_falaknuma',
+          roomTypeId: 'room_palace',
+          checkInDate: '2026-10-01',
+          checkOutDate: '2026-10-03',
+          nights: 2,
+          guestsCount: 5, // Room capacity is 2
+          roomsCount: 1,
+        }),
+      ).rejects.toThrow('allows maximum of 2 guests');
     });
   });
 

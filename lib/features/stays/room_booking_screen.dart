@@ -2,8 +2,12 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_typography.dart';
+import '../../core/data/plaza_global_state.dart';
 import '../../core/data/stay_mock_data.dart';
 import '../../core/models/stay.dart';
+import '../../core/models/unified_booking.dart';
+import '../../core/repositories/repository_provider.dart';
+import '../../core/repositories/stay_repository.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/glass_button.dart';
 import '../../core/widgets/plaza_image.dart';
@@ -12,11 +16,13 @@ import 'hotel_confirmation_screen.dart';
 class RoomBookingScreen extends StatefulWidget {
   final Hotel hotel;
   final RoomType initialRoom;
+  final StayRepository? repository;
 
   const RoomBookingScreen({
     super.key,
     required this.hotel,
     required this.initialRoom,
+    this.repository,
   });
 
   @override
@@ -39,9 +45,12 @@ class _RoomBookingScreenState extends State<RoomBookingScreen> {
 
   bool _isProcessing = false;
 
+  late final StayRepository _stayRepo;
+
   @override
   void initState() {
     super.initState();
+    _stayRepo = widget.repository ?? RepositoryProvider.instance.stayRepo;
     _selectedRoom = widget.initialRoom;
     _selectedAddOnIds.add('addon_breakfast');
   }
@@ -87,7 +96,7 @@ class _RoomBookingScreenState extends State<RoomBookingScreen> {
 
   void _confirmStay() async {
     setState(() => _isProcessing = true);
-    await Future.delayed(const Duration(milliseconds: 600));
+    await Future.delayed(const Duration(milliseconds: 300));
     if (!mounted) return;
 
     final random = Random();
@@ -115,11 +124,33 @@ class _RoomBookingScreenState extends State<RoomBookingScreen> {
       guestEmail: _emailController.text.trim(),
       guestPhone: _phoneController.text.trim(),
       specialRequests: _specialRequestsController.text.trim(),
-      qrCodeData: 'PLAZA-STAY:$bookingId:${widget.hotel.id}',
+      qrCodeData: 'PLAZA://STAY/$bookingId/${widget.hotel.id}',
       paymentMethod: _selectedPayment,
       bookingTime: DateTime.now(),
     );
 
+    await _stayRepo.createBooking(booking);
+
+    // Sync with PlazaGlobalState for Unified Bookings tab
+    PlazaGlobalState.instance.addBooking(
+      UnifiedBooking(
+        id: bookingId,
+        type: UnifiedBookingType.stay,
+        title: widget.hotel.name,
+        subtitle: '${_selectedRoom.name} ($_nightsCount Nights)',
+        location: widget.hotel.location,
+        date: _checkInDate,
+        time: 'Check-in: ${widget.hotel.checkInTime}',
+        imageUrl: widget.hotel.coverImageUrl,
+        status: BookingStatus.upcoming,
+        totalAmount: _grandTotal,
+        confirmationCode: 'QR-$bookingId',
+        seatOrSlotInfo: '${_selectedRoom.name} • $_roomsCount Room • $_guestsCount Guests',
+        hotelBooking: booking,
+      ),
+    );
+
+    if (!mounted) return;
     setState(() => _isProcessing = false);
 
     Navigator.pushReplacement(
@@ -319,7 +350,18 @@ class _RoomBookingScreenState extends State<RoomBookingScreen> {
                                 const SizedBox(width: 8),
                                 GestureDetector(
                                   onTap: () {
-                                    if (_guestsCount < 8) setState(() => _guestsCount++);
+                                    final maxGuests = _selectedRoom.maxGuests * _roomsCount;
+                                    if (_guestsCount < maxGuests) {
+                                      setState(() => _guestsCount++);
+                                    } else {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('Selected room allows max $maxGuests guests for $_roomsCount room(s)'),
+                                          backgroundColor: AppColors.surfaceElevated,
+                                          duration: const Duration(seconds: 1),
+                                        ),
+                                      );
+                                    }
                                   },
                                   child: Container(
                                     padding: const EdgeInsets.all(4),

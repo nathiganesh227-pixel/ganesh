@@ -247,11 +247,19 @@ class HotelConfirmationScreen extends StatelessWidget {
                         const Divider(color: AppColors.glassBorder, height: 1),
                         const SizedBox(height: 12),
 
-                        // Grand Total Paid
+                        // Billing Summary
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('Total Amount Paid', style: AppTypography.labelMedium),
+                            Text('Payment Status', style: AppTypography.bodySmall),
+                            Text('Pay at Check-in / Pending Verification', style: AppTypography.labelSmall.copyWith(color: AppColors.accentGold)),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Estimated Payable Amount', style: AppTypography.labelMedium),
                             Text(
                               '₹${booking.grandTotal.toInt()}',
                               style: AppTypography.headingSmall.copyWith(color: AppColors.accentAmber),
@@ -265,12 +273,40 @@ class HotelConfirmationScreen extends StatelessWidget {
                   const SizedBox(height: 24),
 
                   // Actions
-                  GlassButton(
-                    text: 'Back to Home',
-                    variant: GlassButtonVariant.primary,
-                    onPressed: () {
-                      Navigator.popUntil(context, (route) => route.isFirst);
-                    },
+                  Row(
+                    children: [
+                      Expanded(
+                        child: GlassButton(
+                          text: 'Apple Wallet',
+                          icon: Icons.account_balance_wallet_outlined,
+                          variant: GlassButtonVariant.secondary,
+                          onPressed: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Stay pass added to Apple Wallet '),
+                                backgroundColor: AppColors.surfaceElevated,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: GlassButton(
+                          text: 'Share Pass',
+                          icon: Icons.share_outlined,
+                          variant: GlassButtonVariant.secondary,
+                          onPressed: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Stay pass link copied: ${booking.bookingId}'),
+                                backgroundColor: AppColors.surfaceElevated,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -305,6 +341,14 @@ class HotelConfirmationScreen extends StatelessWidget {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+                  GlassButton(
+                    text: 'Back to Home',
+                    variant: GlassButtonVariant.primary,
+                    onPressed: () {
+                      Navigator.popUntil(context, (route) => route.isFirst);
+                    },
                   ),
                   const SizedBox(height: 40),
                 ],

@@ -1,6 +1,7 @@
 import '../models/stay.dart';
 import '../network/api_client.dart';
 import '../network/api_endpoints.dart';
+import '../network/environment_config.dart';
 import 'stay_repository.dart';
 import 'local_stay_repository.dart';
 
@@ -15,13 +16,18 @@ class ApiStayRepository implements StayRepository {
         _fallback = fallback ?? const LocalStayRepository();
 
   @override
-  Future<List<Hotel>> getHotels({String? category}) async {
+  Future<List<Hotel>> getHotels({String? category, String? q, String? city}) async {
+    final queryParams = <String, String>{};
+    if (category != null && category.isNotEmpty && category.toLowerCase() != 'all') {
+      queryParams['category'] = category;
+    }
+    if (q != null && q.isNotEmpty) queryParams['q'] = q;
+    if (city != null && city.isNotEmpty) queryParams['city'] = city;
+
     try {
       final response = await _client.get<List<Hotel>>(
         ApiEndpoints.stays,
-        queryParams: (category != null && category.isNotEmpty && category.toLowerCase() != 'all')
-            ? {'category': category}
-            : null,
+        queryParams: queryParams.isNotEmpty ? queryParams : null,
         fromJson: (json) {
           if (json is List) {
             return json
@@ -35,8 +41,17 @@ class ApiStayRepository implements StayRepository {
       if (response.success && response.data != null && response.data!.isNotEmpty) {
         return response.data!;
       }
-    } catch (_) {}
-    return _fallback.getHotels(category: category);
+
+      // If response is not successful in prod, do not mask with mock data
+      if (EnvironmentConfig.current == AppEnvironment.prod && !EnvironmentConfig.useMockData) {
+        throw Exception(response.message ?? 'Failed to load hotels from server');
+      }
+    } catch (e) {
+      if (EnvironmentConfig.current == AppEnvironment.prod && !EnvironmentConfig.useMockData) {
+        rethrow;
+      }
+    }
+    return _fallback.getHotels(category: category, q: q, city: city);
   }
 
   @override
@@ -51,7 +66,15 @@ class ApiStayRepository implements StayRepository {
       if (response.success && response.data != null) {
         return response.data;
       }
-    } catch (_) {}
+
+      if (EnvironmentConfig.current == AppEnvironment.prod && !EnvironmentConfig.useMockData) {
+        throw Exception(response.message ?? 'Failed to load hotel details from server');
+      }
+    } catch (e) {
+      if (EnvironmentConfig.current == AppEnvironment.prod && !EnvironmentConfig.useMockData) {
+        rethrow;
+      }
+    }
     return _fallback.getHotelById(id);
   }
 

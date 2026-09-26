@@ -316,13 +316,36 @@ export class BookingsService {
       const hotel = await manager.findOne(HotelEntity, {
         where: { id: payload.hotelId },
       });
-      if (!hotel) throw new NotFoundException('Hotel not found');
+      if (!hotel || hotel.isPublished === false) {
+        throw new NotFoundException('Hotel not found or unpublished');
+      }
 
       const room = hotel.rooms?.find((r) => r.id === payload.roomTypeId);
       if (!room) throw new NotFoundException('Room type not found');
 
+      if (room.isAvailable === false) {
+        throw new BadRequestException(`Room ${room.name} is currently not available`);
+      }
+
+      // Date validation
+      const checkIn = new Date(payload.checkInDate);
+      const checkOut = new Date(payload.checkOutDate);
+      if (isNaN(checkIn.getTime()) || isNaN(checkOut.getTime()) || checkOut <= checkIn) {
+        throw new BadRequestException('Check-out date must be after check-in date');
+      }
+
+      const calculatedNights = Math.max(1, Math.round((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24)));
+      const nights = payload.nights && payload.nights > 0 ? payload.nights : calculatedNights;
+      const roomsCount = payload.roomsCount && payload.roomsCount > 0 ? payload.roomsCount : 1;
+
+      // Guest limit check
+      const maxAllowedGuests = room.maxGuests * roomsCount;
+      if (payload.guestsCount > maxAllowedGuests) {
+        throw new BadRequestException(`Selected room allows maximum of ${maxAllowedGuests} guests for ${roomsCount} room(s)`);
+      }
+
       // Server-side calculation: room price * nights * rooms + add-ons + taxes
-      const roomTotal = room.pricePerNight * payload.nights * payload.roomsCount;
+      const roomTotal = room.pricePerNight * nights * roomsCount;
       let addOnsTotal = 0;
       if (payload.addOnIds && payload.addOnIds.length > 0) {
         for (const addOnId of payload.addOnIds) {

@@ -10,8 +10,12 @@ export class StaysController {
 
   @Get()
   @ApiOperation({ summary: 'Get all hotels' })
-  async findAll(@Query('category') category?: string): Promise<HotelEntity[]> {
-    return this.service.findAll(category);
+  async findAll(
+    @Query('category') category?: string,
+    @Query('q') q?: string,
+    @Query('city') city?: string,
+  ): Promise<HotelEntity[]> {
+    return this.service.findAll(category, q, city);
   }
 
   @Get(':id')

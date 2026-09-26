@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_typography.dart';
+import '../../core/data/plaza_global_state.dart';
 import '../../core/models/stay.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/glass_button.dart';
@@ -56,16 +57,49 @@ class _HotelDetailsScreenState extends State<HotelDetailsScreen> {
                   ),
                 ),
                 actions: [
-                  Padding(
-                    padding: const EdgeInsets.only(right: 16),
+                  GestureDetector(
+                    onTap: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Sharing ${widget.hotel.name}...'),
+                          backgroundColor: AppColors.surfaceElevated,
+                        ),
+                      );
+                    },
                     child: Container(
                       padding: const EdgeInsets.all(8),
+                      margin: const EdgeInsets.only(right: 8),
                       decoration: BoxDecoration(
                         color: const Color(0x95000000),
                         shape: BoxShape.circle,
                         border: Border.all(color: AppColors.glassBorderSubtle),
                       ),
-                      child: const Icon(Icons.bookmark_border_rounded, color: Colors.white, size: 20),
+                      child: const Icon(Icons.share_outlined, color: Colors.white, size: 18),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 16),
+                    child: ListenableBuilder(
+                      listenable: PlazaGlobalState.instance,
+                      builder: (context, _) {
+                        final isFav = PlazaGlobalState.instance.favoriteIds.contains(widget.hotel.id);
+                        return GestureDetector(
+                          onTap: () => PlazaGlobalState.instance.toggleFavorite(widget.hotel.id),
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0x95000000),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: AppColors.glassBorderSubtle),
+                            ),
+                            child: Icon(
+                              isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                              color: isFav ? AppColors.alertRed : Colors.white,
+                              size: 18,
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
                 ],
