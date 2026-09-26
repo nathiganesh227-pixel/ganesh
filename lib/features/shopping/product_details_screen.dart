@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_typography.dart';
+import '../../core/data/plaza_global_state.dart';
 import '../../core/data/shopping_cart_manager.dart';
 import '../../core/data/shopping_mock_data.dart';
 import '../../core/models/shopping.dart';
@@ -26,6 +27,7 @@ class ProductDetailsScreen extends StatefulWidget {
 class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   int _selectedImageIndex = 0;
   ProductVariant? _selectedVariant;
+  int _quantity = 1;
   final ShoppingCartManager _cart = ShoppingCartManager.instance;
 
   @override
@@ -47,11 +49,27 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     if (mounted) setState(() {});
   }
 
+  bool get _isAvailable {
+    if (!widget.product.inStock) return false;
+    if (_selectedVariant != null && !_selectedVariant!.inStock) return false;
+    return true;
+  }
+
   void _addToCart({bool navigateToCart = false}) {
-    _cart.addItem(widget.product, variant: _selectedVariant, quantity: 1);
+    if (!_isAvailable) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Selected option is currently out of stock'),
+          backgroundColor: AppColors.alertRed,
+        ),
+      );
+      return;
+    }
+
+    _cart.addItem(widget.product, variant: _selectedVariant, quantity: _quantity);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Added ${widget.product.name} to your bag 🛍️'),
+        content: Text('Added $_quantity x ${widget.product.name} to your bag 🛍️'),
         backgroundColor: AppColors.surfaceElevated,
         duration: const Duration(seconds: 1),
         action: SnackBarAction(
@@ -103,6 +121,55 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                   ),
                 ),
                 actions: [
+                  // Favorite Heart Button
+                  ListenableBuilder(
+                    listenable: PlazaGlobalState.instance,
+                    builder: (context, _) {
+                      final isFav = PlazaGlobalState.instance.favoriteIds.contains(widget.product.id);
+                      return GestureDetector(
+                        onTap: () => PlazaGlobalState.instance.toggleFavorite(widget.product.id),
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0x95000000),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: AppColors.glassBorderSubtle),
+                          ),
+                          child: Icon(
+                            isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                            color: isFav ? AppColors.alertRed : Colors.white,
+                            size: 18,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(width: 8),
+
+                  // Share Button
+                  GestureDetector(
+                    onTap: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Product link copied to clipboard'),
+                          backgroundColor: AppColors.surfaceElevated,
+                          duration: Duration(seconds: 1),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0x95000000),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.glassBorderSubtle),
+                      ),
+                      child: const Icon(Icons.share_outlined, color: Colors.white, size: 18),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+
+                  // Cart Button with Live Badge
                   Padding(
                     padding: const EdgeInsets.only(right: 16),
                     child: Stack(
@@ -232,7 +299,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
 
                       const SizedBox(height: 8),
 
-                      // Rating & Reviews Row
+                      // Rating & Reviews Row + Availability Badge
                       Row(
                         children: [
                           Container(
@@ -259,6 +326,28 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                           Text(
                             '(${widget.product.reviewCount} verified reviews)',
                             style: AppTypography.bodySmall,
+                          ),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: (_isAvailable ? AppColors.liveGreen : AppColors.alertRed)
+                                  .withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: (_isAvailable ? AppColors.liveGreen : AppColors.alertRed)
+                                    .withValues(alpha: 0.5),
+                              ),
+                            ),
+                            child: Text(
+                              _isAvailable ? 'IN STOCK' : 'OUT OF STOCK',
+                              style: TextStyle(
+                                color: _isAvailable ? AppColors.liveGreen : AppColors.alertRed,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -323,12 +412,28 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                                     width: isSelected ? 1.5 : 1.0,
                                   ),
                                 ),
-                                child: Text(
-                                  v.name,
-                                  style: AppTypography.labelSmall.copyWith(
-                                    color: isSelected ? Colors.white : AppColors.textSecondary,
-                                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                                  ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      v.name,
+                                      style: AppTypography.labelSmall.copyWith(
+                                        color: isSelected ? Colors.white : AppColors.textSecondary,
+                                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                      ),
+                                    ),
+                                    if (!v.inStock) ...[
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        '(Sold Out)',
+                                        style: TextStyle(
+                                          color: AppColors.alertRed.withValues(alpha: 0.8),
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ),
                             );
@@ -336,6 +441,38 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                         ),
                         const SizedBox(height: 24),
                       ],
+
+                      // Quantity Selector
+                      Text('Quantity', style: AppTypography.labelLarge),
+                      const SizedBox(height: 10),
+                      Container(
+                        width: 140,
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.glassFillMedium,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.glassBorderSubtle),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.remove, size: 18, color: Colors.white),
+                              onPressed: _quantity > 1 ? () => setState(() => _quantity--) : null,
+                            ),
+                            Text(
+                              '$_quantity',
+                              style: AppTypography.labelLarge.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.add, size: 18, color: Colors.white),
+                              onPressed: _quantity < 10 && _isAvailable ? () => setState(() => _quantity++) : null,
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 24),
 
                       // Description
                       Text('About Product', style: AppTypography.labelLarge),
@@ -348,39 +485,40 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                       const SizedBox(height: 24),
 
                       // Specifications Table
-                      Text('Product Specifications', style: AppTypography.labelLarge),
-                      const SizedBox(height: 10),
-                      GlassCard(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: widget.product.specifications.entries.map((entry) {
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 6),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    flex: 2,
-                                    child: Text(
-                                      entry.key,
-                                      style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted),
+                      if (widget.product.specifications.isNotEmpty) ...[
+                        Text('Product Specifications', style: AppTypography.labelLarge),
+                        const SizedBox(height: 10),
+                        GlassCard(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            children: widget.product.specifications.entries.map((entry) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      flex: 2,
+                                      child: Text(
+                                        entry.key,
+                                        style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted),
+                                      ),
                                     ),
-                                  ),
-                                  Expanded(
-                                    flex: 3,
-                                    child: Text(
-                                      entry.value,
-                                      style: AppTypography.labelSmall,
+                                    Expanded(
+                                      flex: 3,
+                                      child: Text(
+                                        entry.value,
+                                        style: AppTypography.labelSmall,
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }).toList(),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ),
                         ),
-                      ),
-
-                      const SizedBox(height: 24),
+                        const SizedBox(height: 24),
+                      ],
 
                       // Store Availability & Express Pickup Card
                       Text('Store Availability & Pickup', style: AppTypography.labelLarge),
@@ -423,9 +561,11 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      'In Stock for Same-Day Express Pickup',
+                                      _isAvailable
+                                          ? 'In Stock for Same-Day Express Pickup'
+                                          : 'Currently Out of Stock at this store',
                                       style: AppTypography.labelSmall.copyWith(
-                                        color: AppColors.liveGreen,
+                                        color: _isAvailable ? AppColors.liveGreen : AppColors.alertRed,
                                         fontSize: 10,
                                         fontWeight: FontWeight.w700,
                                       ),
@@ -456,25 +596,31 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 color: AppColors.surfaceCard.withValues(alpha: 0.95),
                 border: const Border(top: BorderSide(color: AppColors.glassBorder)),
               ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: GlassButton(
-                      text: 'Add to Bag 🛍️',
+              child: _isAvailable
+                  ? Row(
+                      children: [
+                        Expanded(
+                          child: GlassButton(
+                            text: 'Add to Bag 🛍️',
+                            variant: GlassButtonVariant.secondary,
+                            onPressed: () => _addToCart(navigateToCart: false),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: GlassButton(
+                            text: 'Buy Now',
+                            variant: GlassButtonVariant.primary,
+                            onPressed: () => _addToCart(navigateToCart: true),
+                          ),
+                        ),
+                      ],
+                    )
+                  : GlassButton(
+                      text: 'Currently Out of Stock',
                       variant: GlassButtonVariant.secondary,
-                      onPressed: () => _addToCart(navigateToCart: false),
+                      onPressed: () {},
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: GlassButton(
-                      text: 'Buy Now',
-                      variant: GlassButtonVariant.primary,
-                      onPressed: () => _addToCart(navigateToCart: true),
-                    ),
-                  ),
-                ],
-              ),
             ),
           ),
         ],

@@ -91,13 +91,35 @@ describe('Phase 8 Production Reliability, Security & Concurrency Verification', 
             });
           }
           if (entity.name === 'ProductEntity' || entity.toString().includes('Product')) {
+            const queryId = (options as any)?.where?.id;
+            if (queryId === 'prod_unpublished') {
+              return Promise.resolve({
+                id: 'prod_unpublished',
+                name: 'Secret Sneaker',
+                price: 9999,
+                isPublished: false,
+                inStock: true,
+              });
+            }
+            if (queryId === 'prod_out_of_stock') {
+              return Promise.resolve({
+                id: 'prod_out_of_stock',
+                name: 'Sold Out Boots',
+                price: 4999,
+                isPublished: true,
+                inStock: false,
+              });
+            }
             return Promise.resolve({
               id: 'prod_zara_jacket',
               name: 'Textured Bomber Jacket',
               price: 5990,
               storeName: 'Zara Flagship',
               storeLocation: 'Inorbit Mall, Madhapur',
-              variants: [{ id: 'var_l', name: 'Size L', priceDelta: 0 }],
+              variants: [
+                { id: 'var_l', name: 'Size L', priceDelta: 0, inStock: true },
+                { id: 'var_s', name: 'Size S', priceDelta: 0, inStock: false },
+              ],
             });
           }
           if (entity.name === 'ActivityEntity' || entity.toString().includes('Activity')) {
@@ -137,12 +159,39 @@ describe('Phase 8 Production Reliability, Security & Concurrency Verification', 
           }
           if (entity.name === 'ProductEntity' || entity.toString().includes('Product')) {
             return {
-              findOne: jest.fn().mockResolvedValue({
-                id: 'prod_zara_jacket',
-                price: 5990,
-                storeName: 'Zara Flagship',
-                storeLocation: 'Inorbit Mall, Madhapur',
-                variants: [],
+              findOne: jest.fn().mockImplementation((options) => {
+                const queryId = (options as any)?.where?.id;
+                if (queryId === 'prod_unpublished') {
+                  return Promise.resolve({
+                    id: 'prod_unpublished',
+                    name: 'Secret Sneaker',
+                    price: 9999,
+                    isPublished: false,
+                    inStock: true,
+                  });
+                }
+                if (queryId === 'prod_out_of_stock') {
+                  return Promise.resolve({
+                    id: 'prod_out_of_stock',
+                    name: 'Sold Out Boots',
+                    price: 4999,
+                    isPublished: true,
+                    inStock: false,
+                  });
+                }
+                return Promise.resolve({
+                  id: 'prod_zara_jacket',
+                  name: 'Textured Bomber Jacket',
+                  price: 5990,
+                  storeName: 'Zara Flagship',
+                  storeLocation: 'Inorbit Mall, Madhapur',
+                  isPublished: true,
+                  inStock: true,
+                  variants: [
+                    { id: 'var_l', name: 'Size L', priceDelta: 0, inStock: true },
+                    { id: 'var_s', name: 'Size S', priceDelta: 0, inStock: false },
+                  ],
+                });
               }),
             };
           }
@@ -308,6 +357,36 @@ describe('Phase 8 Production Reliability, Security & Concurrency Verification', 
       // Server formula: (5990 * 2) + 29 platform fee + (11980 * 0.05 = 599 GST) = 12608
       expect(order.totalPrice).toBe(12608);
       expect(order.metadata.payment.amount).toBe(12608);
+    });
+
+    it('rejects shopping order with unpublished product', async () => {
+      await expect(
+        bookingsService.createShoppingOrder({
+          userId: 'usr_userA',
+          items: [{ productId: 'prod_unpublished', quantity: 1 }],
+          fulfillmentType: 'Store Pickup',
+        }),
+      ).rejects.toThrow('not found or unpublished');
+    });
+
+    it('rejects shopping order when product is out of stock', async () => {
+      await expect(
+        bookingsService.createShoppingOrder({
+          userId: 'usr_userA',
+          items: [{ productId: 'prod_out_of_stock', quantity: 1 }],
+          fulfillmentType: 'Store Pickup',
+        }),
+      ).rejects.toThrow('is out of stock');
+    });
+
+    it('rejects shopping order when selected variant is out of stock', async () => {
+      await expect(
+        bookingsService.createShoppingOrder({
+          userId: 'usr_userA',
+          items: [{ productId: 'prod_zara_jacket', variantId: 'var_s', quantity: 1 }],
+          fulfillmentType: 'Store Pickup',
+        }),
+      ).rejects.toThrow('is out of stock');
     });
   });
 

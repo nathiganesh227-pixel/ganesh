@@ -215,15 +215,15 @@ class ShoppingConfirmationScreen extends StatelessWidget {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('Payment Mode', style: AppTypography.bodySmall),
-                            Text(order.paymentMethod, style: AppTypography.labelSmall),
+                            Text('Payment Status', style: AppTypography.bodySmall),
+                            Text('Pay on Pickup / Pending', style: AppTypography.labelSmall.copyWith(color: AppColors.accentGold)),
                           ],
                         ),
                         const SizedBox(height: 4),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('Grand Total Paid', style: AppTypography.labelMedium),
+                            Text('Payable Amount', style: AppTypography.labelMedium),
                             Text(
                               '₹${order.grandTotal.toInt()}',
                               style: AppTypography.headingSmall.copyWith(color: AppColors.primaryLight),

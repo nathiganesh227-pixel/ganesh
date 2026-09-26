@@ -2,15 +2,20 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_typography.dart';
+import '../../core/data/plaza_global_state.dart';
 import '../../core/data/shopping_cart_manager.dart';
 import '../../core/models/shopping.dart';
+import '../../core/models/unified_booking.dart';
+import '../../core/repositories/repository_provider.dart';
+import '../../core/repositories/shopping_repository.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/glass_button.dart';
 import '../../core/widgets/plaza_image.dart';
 import 'shopping_confirmation_screen.dart';
 
 class CartScreen extends StatefulWidget {
-  const CartScreen({super.key});
+  final ShoppingRepository? repository;
+  const CartScreen({super.key, this.repository});
 
   @override
   State<CartScreen> createState() => _CartScreenState();
@@ -18,6 +23,7 @@ class CartScreen extends StatefulWidget {
 
 class _CartScreenState extends State<CartScreen> {
   final ShoppingCartManager _cart = ShoppingCartManager.instance;
+  late final ShoppingRepository _shoppingRepo;
   ShoppingFulfillmentType _fulfillment = ShoppingFulfillmentType.inStorePickup;
   String _selectedPayment = 'UPI / Google Pay';
   final TextEditingController _couponController = TextEditingController();
@@ -28,6 +34,7 @@ class _CartScreenState extends State<CartScreen> {
   @override
   void initState() {
     super.initState();
+    _shoppingRepo = widget.repository ?? RepositoryProvider.instance.shoppingRepo;
     _cart.addListener(_onCartChanged);
   }
 
@@ -69,23 +76,25 @@ class _CartScreenState extends State<CartScreen> {
     if (_cart.items.isEmpty) return;
 
     setState(() => _isCheckingOut = true);
-    await Future.delayed(const Duration(milliseconds: 600));
+    await Future.delayed(const Duration(milliseconds: 300));
     if (!mounted) return;
 
     final random = Random();
-    final orderId = 'PLZ-SHP-${random.nextInt(899999) + 100000}';
+    final orderId = 'ORD-PLZ-${random.nextInt(899999) + 100000}';
     final pickupCode = '${random.nextInt(8999) + 1000}';
 
     final totalDiscount = _cart.discountAmount + _couponDiscount;
-    final finalGrandTotal = max(0.0, _cart.itemsTotal - totalDiscount + _cart.platformFee + _cart.gstAmount);
+    const platformFee = 29.0;
+    final gstAmount = ((_cart.itemsTotal - totalDiscount) * 0.05).roundToDouble();
+    final finalGrandTotal = max(0.0, _cart.itemsTotal - totalDiscount + platformFee + gstAmount);
 
     final order = ShoppingOrder(
       orderId: orderId,
       items: List.from(_cart.items),
       itemsTotal: _cart.itemsTotal,
       discountAmount: totalDiscount,
-      platformFee: _cart.platformFee,
-      gstAmount: _cart.gstAmount,
+      platformFee: platformFee,
+      gstAmount: gstAmount,
       grandTotal: finalGrandTotal,
       fulfillmentType: _fulfillment,
       storeName: _cart.items.first.product.storeName,
@@ -96,7 +105,27 @@ class _CartScreenState extends State<CartScreen> {
       pickupCode: pickupCode,
     );
 
+    await _shoppingRepo.createOrder(order);
+
+    PlazaGlobalState.instance.addBooking(
+      UnifiedBooking(
+        id: orderId,
+        title: order.storeName,
+        subtitle: '${_cart.totalItemCount} items • ${order.fulfillmentType.label}',
+        type: UnifiedBookingType.shopping,
+        location: order.storeLocation,
+        date: DateTime.now(),
+        time: 'Express Pickup',
+        totalAmount: finalGrandTotal,
+        status: BookingStatus.upcoming,
+        imageUrl: _cart.items.first.product.coverImageUrl,
+        confirmationCode: order.pickupCode,
+        shoppingOrder: order,
+      ),
+    );
+
     _cart.clearCart();
+    if (!mounted) return;
     setState(() => _isCheckingOut = false);
 
     Navigator.pushReplacement(

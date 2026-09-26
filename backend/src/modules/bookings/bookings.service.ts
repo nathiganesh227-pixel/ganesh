@@ -385,18 +385,32 @@ export class BookingsService {
 
       for (const item of payload.items) {
         const prod = await productRepo.findOne({ where: { id: item.productId } });
-        if (!prod) throw new NotFoundException(`Product ${item.productId} not found`);
+        if (!prod || prod.isPublished === false) {
+          throw new NotFoundException(`Product ${item.productId} not found or unpublished`);
+        }
+        if (prod.inStock === false) {
+          throw new BadRequestException(`Product "${prod.name}" is out of stock`);
+        }
+        if (!item.quantity || item.quantity <= 0) {
+          throw new BadRequestException(`Invalid quantity for product "${prod.name}"`);
+        }
 
         let unitPrice = prod.price;
         if (item.variantId && prod.variants) {
           const variant = prod.variants.find((v) => v.id === item.variantId);
-          if (variant) unitPrice += variant.priceDelta;
+          if (!variant) {
+            throw new BadRequestException(`Variant ${item.variantId} not found`);
+          }
+          if (variant.inStock === false) {
+            throw new BadRequestException(`Variant "${variant.name}" is out of stock`);
+          }
+          unitPrice += variant.priceDelta;
         }
 
         itemsTotal += unitPrice * item.quantity;
-        storeName = prod.storeName;
-        storeLocation = prod.storeLocation;
-        coverImage = prod.coverImageUrl;
+        storeName = prod.storeName || 'PLAZA Partner Store';
+        storeLocation = prod.storeLocation || 'Hyderabad';
+        coverImage = prod.coverImageUrl || '';
       }
 
       const platformFee = 29.0;

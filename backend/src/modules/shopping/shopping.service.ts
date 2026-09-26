@@ -10,11 +10,32 @@ export class ShoppingService {
     private readonly repo: Repository<ProductEntity>,
   ) {}
 
-  async findAll(category?: string): Promise<ProductEntity[]> {
-    if (category) {
-      return this.repo.find({ where: { category, isPublished: true } });
+  async findAll(category?: string, q?: string, brand?: string): Promise<ProductEntity[]> {
+    let items = await this.repo.find({ where: { isPublished: true } });
+    if (category && category !== 'all') {
+      const catLower = category.toLowerCase();
+      items = items.filter(
+        (i) => i.category && i.category.toLowerCase().includes(catLower),
+      );
     }
-    return this.repo.find({ where: { isPublished: true } });
+    if (brand) {
+      const brandLower = brand.toLowerCase();
+      items = items.filter(
+        (i) => i.brand && i.brand.toLowerCase().includes(brandLower),
+      );
+    }
+    if (q) {
+      const qLower = q.toLowerCase();
+      items = items.filter(
+        (i) =>
+          (i.name && i.name.toLowerCase().includes(qLower)) ||
+          (i.brand && i.brand.toLowerCase().includes(qLower)) ||
+          (i.category && i.category.toLowerCase().includes(qLower)) ||
+          (i.description && i.description.toLowerCase().includes(qLower)) ||
+          (i.storeName && i.storeName.toLowerCase().includes(qLower)),
+      );
+    }
+    return items;
   }
 
   async findOne(id: string): Promise<ProductEntity> {

@@ -10,8 +10,12 @@ export class ShoppingController {
 
   @Get()
   @ApiOperation({ summary: 'Get all products' })
-  async findAll(@Query('category') category?: string): Promise<ProductEntity[]> {
-    return this.service.findAll(category);
+  async findAll(
+    @Query('category') category?: string,
+    @Query('q') q?: string,
+    @Query('brand') brand?: string,
+  ): Promise<ProductEntity[]> {
+    return this.service.findAll(category, q, brand);
   }
 
   @Get(':id')
