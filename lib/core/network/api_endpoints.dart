@@ -79,4 +79,15 @@ class ApiEndpoints {
   static const String adminAuditLogs = '/admin/audit-logs';
   static String adminPublish(String vertical, String id) => '/admin/$vertical/$id/publish';
   static String adminUnpublish(String vertical, String id) => '/admin/$vertical/$id/unpublish';
+
+  // Operations Console
+  static const String adminSystemHealth = '/admin/system-health';
+  static const String adminSearch = '/admin/search';
+  static const String adminBookings = '/admin/bookings';
+  static String adminBookingDetails(String id) => '/admin/bookings/$id';
+  static String adminRefundBooking(String id) => '/admin/bookings/$id/refund';
+  static const String adminPayments = '/admin/payments';
+  static String adminAdjustRewards(String id) => '/admin/users/$id/rewards';
+  static const String adminNotifications = '/admin/notifications';
+  static const String adminIncidents = '/admin/incidents';
 }

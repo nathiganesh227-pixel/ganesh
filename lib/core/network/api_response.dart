@@ -12,6 +12,10 @@ class ApiResponse<T> {
     this.statusCode,
   });
 
+  bool get isSuccess => success;
+  bool get isFailure => !success;
+  String? get errorMessage => message;
+
   factory ApiResponse.success(T data, {String? message, int? statusCode}) {
     return ApiResponse(
       success: true,

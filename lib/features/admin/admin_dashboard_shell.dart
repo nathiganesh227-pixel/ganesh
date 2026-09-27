@@ -12,6 +12,11 @@ import 'views/admin_shows_view.dart';
 import 'views/admin_vertical_catalog_view.dart';
 import 'views/admin_users_view.dart';
 import 'views/admin_audit_logs_view.dart';
+import 'views/admin_bookings_view.dart';
+import 'views/admin_payments_view.dart';
+import 'views/admin_system_health_view.dart';
+import 'views/admin_notifications_view.dart';
+import 'views/admin_incidents_view.dart';
 
 class AdminDashboardShell extends StatefulWidget {
   final AdminRepository? repository;
@@ -44,6 +49,11 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     _NavDestination('Sports', Icons.sports_tennis_rounded),
     _NavDestination('Users', Icons.people_alt_rounded),
     _NavDestination('Audit Logs', Icons.security_rounded),
+    _NavDestination('Bookings', Icons.confirmation_number_rounded),
+    _NavDestination('Payments', Icons.credit_card_rounded),
+    _NavDestination('System Health', Icons.health_and_safety_rounded),
+    _NavDestination('Incidents', Icons.warning_amber_rounded),
+    _NavDestination('Notifications', Icons.notifications_active_rounded),
   ];
 
   @override
@@ -133,6 +143,16 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         return AdminUsersView(repository: widget.repository);
       case 12:
         return AdminAuditLogsView(repository: widget.repository);
+      case 13:
+        return AdminBookingsView(repository: widget.repository);
+      case 14:
+        return AdminPaymentsView(repository: widget.repository);
+      case 15:
+        return AdminSystemHealthView(repository: widget.repository);
+      case 16:
+        return AdminIncidentsView(repository: widget.repository);
+      case 17:
+        return AdminNotificationsView(repository: widget.repository);
       default:
         return AdminOverviewView(repository: widget.repository);
     }
@@ -271,9 +291,9 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                               Text(
-                                'Role: ADMIN',
+                                'Role: ${(AuthService.instance.currentUser?.role.name ?? 'ADMIN').toUpperCase()}',
                                 style: TextStyle(
-                                  color: AppColors.liveGreen,
+                                  color: AuthService.instance.isOperator ? AppColors.accentAmber : AppColors.liveGreen,
                                   fontSize: 10,
                                   fontWeight: FontWeight.w700,
                                 ),

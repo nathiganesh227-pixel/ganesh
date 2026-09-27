@@ -447,7 +447,7 @@ describe('Phase 12 — Admin Foundation, RBAC, Dashboard & Real Movie Show Manag
         () => adminController.getDashboard(),
       );
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         users: 2,
         movies: 1,
         dining: 8,

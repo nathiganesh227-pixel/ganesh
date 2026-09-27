@@ -16,7 +16,16 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../database/entities/user.entity';
 import { AdminService } from './admin.service';
-import { UpdateRoleDto, PaginationQueryDto } from './dto/admin.dto';
+import {
+  UpdateRoleDto,
+  PaginationQueryDto,
+  RefundBookingDto,
+  AdjustRewardsDto,
+  AdminSearchQueryDto,
+  AdminBookingQueryDto,
+  AdminPaymentQueryDto,
+  AdminAuditLogQueryDto,
+} from './dto/admin.dto';
 import {
   CreateMovieDto,
   UpdateMovieDto,
@@ -51,31 +60,100 @@ export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   @Get('health')
-  @ApiOperation({ summary: 'Admin health status (restricted to ADMIN role)' })
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'Admin health status' })
   getHealth() {
     return this.adminService.getHealth();
   }
 
+  @Get('system-health')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'System health, DB status, and gateway live/sandbox mode' })
+  getSystemHealth() {
+    return this.adminService.getSystemHealth();
+  }
+
   @Get('dashboard')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Admin dashboard metrics and catalog entity counts' })
   async getDashboard() {
     return this.adminService.getDashboardStats();
   }
 
+  @Get('search')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'Global operations search across bookings, payments, users, catalog' })
+  async search(@Query() query: AdminSearchQueryDto) {
+    return this.adminService.searchOperations(query.q);
+  }
+
+  // ---------------- BOOKINGS OPERATIONS ----------------
+  @Get('bookings')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'List and filter customer bookings' })
+  async getBookings(@Query() query: AdminBookingQueryDto) {
+    return this.adminService.getBookings(query);
+  }
+
+  @Get('bookings/:id')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'Get booking detail with customer, pricing, payment, and audit timeline' })
+  async getBookingDetails(@Param('id') id: string) {
+    return this.adminService.getBookingDetails(id);
+  }
+
+  @Post('bookings/:id/refund')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Process booking cancellation and payment refund (Admin only)' })
+  async refundBooking(
+    @Param('id') id: string,
+    @Body() dto: RefundBookingDto,
+    @Request() req: any,
+  ) {
+    return this.adminService.refundBooking(id, dto, req.user);
+  }
+
+  // ---------------- PAYMENTS OPERATIONS ----------------
+  @Get('payments')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'List and filter payment transactions with safe projection' })
+  async getPayments(@Query() query: AdminPaymentQueryDto) {
+    return this.adminService.getPayments(query);
+  }
+
+  // ---------------- NOTIFICATIONS OPERATIONS ----------------
+  @Get('notifications')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'List customer notification delivery logs' })
+  async getNotifications(@Query() query: PaginationQueryDto) {
+    return this.adminService.getNotifications(query.limit, query.offset);
+  }
+
+  // ---------------- INCIDENTS OPERATIONS ----------------
+  @Get('incidents')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'List operational incidents and failure records' })
+  async getIncidents(@Query() query: PaginationQueryDto) {
+    return this.adminService.getIncidents(query.limit, query.offset);
+  }
+
   // ---------------- USER MANAGEMENT ----------------
   @Get('users')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'List all users with safe projections (no secrets/hashes)' })
   async getUsers(@Query() query: PaginationQueryDto) {
     return this.adminService.getUsers(query.limit, query.offset);
   }
 
   @Get('users/:id')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Get user details by ID (safe projection)' })
   async getUserById(@Param('id') id: string) {
     return this.adminService.getUserById(id);
   }
 
   @Patch('users/:id/role')
+  @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Update user role with last-admin demotion protection' })
   async updateUserRole(
     @Param('id') id: string,
@@ -85,8 +163,20 @@ export class AdminController {
     return this.adminService.updateUserRole(id, dto, req.user);
   }
 
+  @Post('users/:id/rewards')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Adjust user reward points with reason and audit log (Admin only)' })
+  async adjustUserRewards(
+    @Param('id') id: string,
+    @Body() dto: AdjustRewardsDto,
+    @Request() req: any,
+  ) {
+    return this.adminService.adjustUserRewards(id, dto, req.user);
+  }
+
   // ---------------- MOVIE MANAGEMENT ----------------
   @Get('movies')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'List all movies' })
   async getMovies(@Query() query: PaginationQueryDto) {
     return this.adminService.getMovies(query.limit, query.offset);
@@ -116,12 +206,14 @@ export class AdminController {
 
   // ---------------- THEATRE MANAGEMENT ----------------
   @Get('theatres')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'List all theatres' })
   async getTheatres(@Query() query: PaginationQueryDto) {
     return this.adminService.getTheatres(query.limit, query.offset);
   }
 
   @Get('theatres/:id')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Get theatre by ID' })
   async getTheatreById(@Param('id') id: string) {
     return this.adminService.getTheatreById(id);
@@ -145,6 +237,7 @@ export class AdminController {
 
   // ---------------- SCREEN MANAGEMENT ----------------
   @Get('screens')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'List screens, optionally by theatre' })
   async getScreens(
     @Query('theatreId') theatreId?: string,
@@ -155,6 +248,7 @@ export class AdminController {
   }
 
   @Get('screens/:id')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Get screen by ID' })
   async getScreenById(@Param('id') id: string) {
     return this.adminService.getScreenById(id);
@@ -182,6 +276,7 @@ export class AdminController {
 
   // ---------------- SHOW MANAGEMENT ----------------
   @Get('shows')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'List scheduled movie shows' })
   async getShows(
     @Query('movieId') movieId?: string,
@@ -194,6 +289,7 @@ export class AdminController {
   }
 
   @Get('shows/:id')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Get show by ID' })
   async getShowById(@Param('id') id: string) {
     return this.adminService.getShowById(id);
@@ -223,12 +319,14 @@ export class AdminController {
 
   // ---------------- DINING MANAGEMENT ----------------
   @Get('dining')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'List all dining restaurants (admin view)' })
   async getDining(@Query() query: PaginationQueryDto) {
     return this.adminService.getDining(query.limit, query.offset);
   }
 
   @Get('dining/:id')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Get restaurant by ID' })
   async getDiningById(@Param('id') id: string) {
     return this.adminService.getDiningById(id);
@@ -257,12 +355,14 @@ export class AdminController {
   }
 
   @Patch('dining/:id/publish')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Publish a restaurant entry' })
   async publishDining(@Param('id') id: string, @Request() req: any) {
     return this.adminService.publishDining(id, req.user);
   }
 
   @Patch('dining/:id/unpublish')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Unpublish a restaurant entry' })
   async unpublishDining(@Param('id') id: string, @Request() req: any) {
     return this.adminService.unpublishDining(id, req.user);
@@ -270,12 +370,14 @@ export class AdminController {
 
   // ---------------- EVENTS MANAGEMENT ----------------
   @Get('events')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'List all events (admin view)' })
   async getEvents(@Query() query: PaginationQueryDto) {
     return this.adminService.getEvents(query.limit, query.offset);
   }
 
   @Get('events/:id')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Get event by ID' })
   async getEventById(@Param('id') id: string) {
     return this.adminService.getEventById(id);
@@ -304,12 +406,14 @@ export class AdminController {
   }
 
   @Patch('events/:id/publish')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Publish an event' })
   async publishEvent(@Param('id') id: string, @Request() req: any) {
     return this.adminService.publishEvent(id, req.user);
   }
 
   @Patch('events/:id/unpublish')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Unpublish an event' })
   async unpublishEvent(@Param('id') id: string, @Request() req: any) {
     return this.adminService.unpublishEvent(id, req.user);
@@ -317,12 +421,14 @@ export class AdminController {
 
   // ---------------- ACTIVITIES MANAGEMENT ----------------
   @Get('activities')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'List all activities (admin view)' })
   async getActivities(@Query() query: PaginationQueryDto) {
     return this.adminService.getActivities(query.limit, query.offset);
   }
 
   @Get('activities/:id')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Get activity by ID' })
   async getActivityById(@Param('id') id: string) {
     return this.adminService.getActivityById(id);
@@ -351,12 +457,14 @@ export class AdminController {
   }
 
   @Patch('activities/:id/publish')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Publish an activity' })
   async publishActivity(@Param('id') id: string, @Request() req: any) {
     return this.adminService.publishActivity(id, req.user);
   }
 
   @Patch('activities/:id/unpublish')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Unpublish an activity' })
   async unpublishActivity(@Param('id') id: string, @Request() req: any) {
     return this.adminService.unpublishActivity(id, req.user);
@@ -364,12 +472,14 @@ export class AdminController {
 
   // ---------------- SHOPPING MANAGEMENT ----------------
   @Get('shopping')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'List all shopping products (admin view)' })
   async getProducts(@Query() query: PaginationQueryDto) {
     return this.adminService.getProducts(query.limit, query.offset);
   }
 
   @Get('shopping/:id')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Get product by ID' })
   async getProductById(@Param('id') id: string) {
     return this.adminService.getProductById(id);
@@ -398,12 +508,14 @@ export class AdminController {
   }
 
   @Patch('shopping/:id/publish')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Publish a product' })
   async publishProduct(@Param('id') id: string, @Request() req: any) {
     return this.adminService.publishProduct(id, req.user);
   }
 
   @Patch('shopping/:id/unpublish')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Unpublish a product' })
   async unpublishProduct(@Param('id') id: string, @Request() req: any) {
     return this.adminService.unpublishProduct(id, req.user);
@@ -411,12 +523,14 @@ export class AdminController {
 
   // ---------------- STAYS MANAGEMENT ----------------
   @Get('stays')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'List all stay hotels (admin view)' })
   async getHotels(@Query() query: PaginationQueryDto) {
     return this.adminService.getHotels(query.limit, query.offset);
   }
 
   @Get('stays/:id')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Get hotel by ID' })
   async getHotelById(@Param('id') id: string) {
     return this.adminService.getHotelById(id);
@@ -445,12 +559,14 @@ export class AdminController {
   }
 
   @Patch('stays/:id/publish')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Publish a hotel' })
   async publishHotel(@Param('id') id: string, @Request() req: any) {
     return this.adminService.publishHotel(id, req.user);
   }
 
   @Patch('stays/:id/unpublish')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Unpublish a hotel' })
   async unpublishHotel(@Param('id') id: string, @Request() req: any) {
     return this.adminService.unpublishHotel(id, req.user);
@@ -458,12 +574,14 @@ export class AdminController {
 
   // ---------------- SPORTS MANAGEMENT ----------------
   @Get('sports')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'List all sports venues (admin view)' })
   async getSportsVenues(@Query() query: PaginationQueryDto) {
     return this.adminService.getSportsVenues(query.limit, query.offset);
   }
 
   @Get('sports/:id')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Get sports venue by ID' })
   async getSportsVenueById(@Param('id') id: string) {
     return this.adminService.getSportsVenueById(id);
@@ -492,12 +610,14 @@ export class AdminController {
   }
 
   @Patch('sports/:id/publish')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Publish a sports venue' })
   async publishSportsVenue(@Param('id') id: string, @Request() req: any) {
     return this.adminService.publishSportsVenue(id, req.user);
   }
 
   @Patch('sports/:id/unpublish')
+  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Unpublish a sports venue' })
   async unpublishSportsVenue(@Param('id') id: string, @Request() req: any) {
     return this.adminService.unpublishSportsVenue(id, req.user);
@@ -505,8 +625,9 @@ export class AdminController {
 
   // ---------------- AUDIT LOGS ----------------
   @Get('audit-logs')
+  @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'List recent administrative audit logs' })
-  async getAuditLogs(@Query() query: PaginationQueryDto) {
-    return this.adminService.getAuditLogs(query.limit, query.offset);
+  async getAuditLogs(@Query() query: AdminAuditLogQueryDto) {
+    return this.adminService.getAuditLogs(query.limit, query.offset, query);
   }
 }

@@ -97,4 +97,6 @@ class AppTypography {
         letterSpacing: -0.2,
         color: AppColors.textPrimary,
       );
+
+  static TextStyle get caption => bodySmall;
 }

@@ -301,6 +301,76 @@ class MockAdminRepository implements AdminRepository {
     }
     return ApiResponse.failure('Item not found');
   }
+
+  @override
+  Future<ApiResponse<List<AdminSearchResult>>> searchOperations(String query) async {
+    return ApiResponse.success([]);
+  }
+
+  @override
+  Future<ApiResponse<List<AdminBooking>>> getBookings({
+    String? vertical,
+    String? status,
+    String? paymentStatus,
+    String? search,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    return ApiResponse.success([]);
+  }
+
+  @override
+  Future<ApiResponse<AdminBookingDetail>> getBookingDetails(String id) async {
+    return ApiResponse.failure('Not implemented');
+  }
+
+  @override
+  Future<ApiResponse<dynamic>> refundBooking(String id, String reason) async {
+    return ApiResponse.success({'refunded': true});
+  }
+
+  @override
+  Future<ApiResponse<List<AdminPayment>>> getPayments({
+    String? status,
+    String? search,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    return ApiResponse.success([]);
+  }
+
+  @override
+  Future<ApiResponse<dynamic>> adjustUserRewards(String userId, int points, String reason) async {
+    return ApiResponse.success({'adjusted': true});
+  }
+
+  @override
+  Future<ApiResponse<AdminSystemHealth>> getSystemHealth() async {
+    return ApiResponse.success(const AdminSystemHealth(
+      status: 'HEALTHY',
+      environment: 'test',
+      uptimeSeconds: 100,
+      timestamp: '2026-09-26T12:00:00Z',
+      apiStatus: 'UP',
+      dbStatus: 'UP',
+      dbLatencyMs: 2,
+      paymentProvider: 'razorpay',
+      paymentMode: 'TEST/SANDBOX',
+      paymentWebhookConfigured: true,
+      smsProvider: 'twilio',
+      smsMode: 'TEST/SANDBOX',
+    ));
+  }
+
+  @override
+  Future<ApiResponse<List<AdminIncident>>> getIncidents({int limit = 50, int offset = 0}) async {
+    return ApiResponse.success([]);
+  }
+
+  @override
+  Future<ApiResponse<List<AdminNotificationItem>>> getNotifications({int limit = 50, int offset = 0}) async {
+    return ApiResponse.success([]);
+  }
 }
 
 void main() {

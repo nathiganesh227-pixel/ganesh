@@ -289,4 +289,173 @@ class ApiAdminRepository implements AdminRepository {
       },
     );
   }
+
+  // ---------------- OPERATIONS SEARCH ----------------
+  @override
+  Future<ApiResponse<List<AdminSearchResult>>> searchOperations(String query) {
+    return _client.get<List<AdminSearchResult>>(
+      ApiEndpoints.adminSearch,
+      queryParams: {'q': query},
+      fromJson: (json) {
+        if (json is Map<String, dynamic> && json['results'] is List) {
+          return (json['results'] as List)
+              .map((e) => AdminSearchResult.fromJson(e as Map<String, dynamic>))
+              .toList();
+        }
+        return [];
+      },
+    );
+  }
+
+  // ---------------- BOOKINGS OPERATIONS ----------------
+  @override
+  Future<ApiResponse<List<AdminBooking>>> getBookings({
+    String? vertical,
+    String? status,
+    String? paymentStatus,
+    String? search,
+    int limit = 50,
+    int offset = 0,
+  }) {
+    final params = <String, String>{
+      'limit': limit.toString(),
+      'offset': offset.toString(),
+    };
+    if (vertical != null && vertical.isNotEmpty && vertical != 'all') {
+      params['vertical'] = vertical;
+    }
+    if (status != null && status.isNotEmpty && status != 'all') {
+      params['status'] = status;
+    }
+    if (paymentStatus != null && paymentStatus.isNotEmpty && paymentStatus != 'all') {
+      params['paymentStatus'] = paymentStatus;
+    }
+    if (search != null && search.isNotEmpty) {
+      params['search'] = search;
+    }
+
+    return _client.get<List<AdminBooking>>(
+      ApiEndpoints.adminBookings,
+      queryParams: params,
+      fromJson: (json) {
+        if (json is Map<String, dynamic> && json['bookings'] is List) {
+          return (json['bookings'] as List)
+              .map((e) => AdminBooking.fromJson(e as Map<String, dynamic>))
+              .toList();
+        } else if (json is List) {
+          return json.map((e) => AdminBooking.fromJson(e as Map<String, dynamic>)).toList();
+        }
+        return [];
+      },
+    );
+  }
+
+  @override
+  Future<ApiResponse<AdminBookingDetail>> getBookingDetails(String id) {
+    return _client.get<AdminBookingDetail>(
+      ApiEndpoints.adminBookingDetails(id),
+      fromJson: (json) => AdminBookingDetail.fromJson(json as Map<String, dynamic>),
+    );
+  }
+
+  @override
+  Future<ApiResponse<dynamic>> refundBooking(String id, String reason) {
+    return _client.post<dynamic>(
+      ApiEndpoints.adminRefundBooking(id),
+      body: {'reason': reason},
+      fromJson: (json) => json,
+    );
+  }
+
+  // ---------------- PAYMENTS OPERATIONS ----------------
+  @override
+  Future<ApiResponse<List<AdminPayment>>> getPayments({
+    String? status,
+    String? search,
+    int limit = 50,
+    int offset = 0,
+  }) {
+    final params = <String, String>{
+      'limit': limit.toString(),
+      'offset': offset.toString(),
+    };
+    if (status != null && status.isNotEmpty && status != 'all') {
+      params['status'] = status;
+    }
+    if (search != null && search.isNotEmpty) {
+      params['search'] = search;
+    }
+
+    return _client.get<List<AdminPayment>>(
+      ApiEndpoints.adminPayments,
+      queryParams: params,
+      fromJson: (json) {
+        if (json is Map<String, dynamic> && json['payments'] is List) {
+          return (json['payments'] as List)
+              .map((e) => AdminPayment.fromJson(e as Map<String, dynamic>))
+              .toList();
+        } else if (json is List) {
+          return json.map((e) => AdminPayment.fromJson(e as Map<String, dynamic>)).toList();
+        }
+        return [];
+      },
+    );
+  }
+
+  // ---------------- REWARDS ADJUSTMENT ----------------
+  @override
+  Future<ApiResponse<dynamic>> adjustUserRewards(String userId, int amount, String reason) {
+    return _client.post<dynamic>(
+      ApiEndpoints.adminAdjustRewards(userId),
+      body: {'amount': amount, 'reason': reason},
+      fromJson: (json) => json,
+    );
+  }
+
+  // ---------------- SYSTEM HEALTH ----------------
+  @override
+  Future<ApiResponse<AdminSystemHealth>> getSystemHealth() {
+    return _client.get<AdminSystemHealth>(
+      ApiEndpoints.adminSystemHealth,
+      fromJson: (json) => AdminSystemHealth.fromJson(json as Map<String, dynamic>),
+    );
+  }
+
+  // ---------------- NOTIFICATIONS ----------------
+  @override
+  Future<ApiResponse<List<AdminNotificationItem>>> getNotifications({int limit = 50, int offset = 0}) {
+    return _client.get<List<AdminNotificationItem>>(
+      ApiEndpoints.adminNotifications,
+      queryParams: {'limit': limit.toString(), 'offset': offset.toString()},
+      fromJson: (json) {
+        if (json is Map<String, dynamic> && json['notifications'] is List) {
+          return (json['notifications'] as List)
+              .map((e) => AdminNotificationItem.fromJson(e as Map<String, dynamic>))
+              .toList();
+        } else if (json is List) {
+          return json.map((e) => AdminNotificationItem.fromJson(e as Map<String, dynamic>)).toList();
+        }
+        return [];
+      },
+    );
+  }
+
+  // ---------------- INCIDENTS ----------------
+  @override
+  Future<ApiResponse<List<AdminIncident>>> getIncidents({int limit = 50, int offset = 0}) {
+    return _client.get<List<AdminIncident>>(
+      ApiEndpoints.adminIncidents,
+      queryParams: {'limit': limit.toString(), 'offset': offset.toString()},
+      fromJson: (json) {
+        if (json is Map<String, dynamic> && json['incidents'] is List) {
+          return (json['incidents'] as List)
+              .map((e) => AdminIncident.fromJson(e as Map<String, dynamic>))
+              .toList();
+        } else if (json is List) {
+          return json.map((e) => AdminIncident.fromJson(e as Map<String, dynamic>)).toList();
+        }
+        return [];
+      },
+    );
+  }
 }

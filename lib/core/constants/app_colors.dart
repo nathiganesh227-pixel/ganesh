@@ -38,10 +38,15 @@ class AppColors {
   static const Color alertRed = Color(0xFFEF4444);
   static const Color warningOrange = Color(0xFFF97316);
 
+  // Common aliases
+  static const Color surface = surfaceCard;
+  static const Color border = glassBorder;
+
   // Typography Colors
   static const Color textPrimary = Color(0xFFF8FAFC);
   static const Color textSecondary = Color(0xFF94A3B8);
   static const Color textMuted = Color(0xFF64748B);
+  static const Color textTertiary = Color(0xFF64748B);
   static const Color textDark = Color(0xFF0F172A);
 
   // Shadows

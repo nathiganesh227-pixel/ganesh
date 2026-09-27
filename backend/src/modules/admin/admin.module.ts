@@ -18,6 +18,10 @@ import { BookingEntity } from '../../database/entities/booking.entity';
 import { AuditLogEntity } from '../../database/entities/audit-log.entity';
 import { ScreenEntity } from '../../database/entities/screen.entity';
 import { ShowEntity } from '../../database/entities/show.entity';
+import { PaymentEntity } from '../../database/entities/payment.entity';
+import { NotificationEntity } from '../../database/entities/notification.entity';
+import { WebhookEventEntity } from '../../database/entities/webhook-event.entity';
+import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
   imports: [
@@ -35,8 +39,12 @@ import { ShowEntity } from '../../database/entities/show.entity';
       AuditLogEntity,
       ScreenEntity,
       ShowEntity,
+      PaymentEntity,
+      NotificationEntity,
+      WebhookEventEntity,
     ]),
     AuthModule,
+    PaymentsModule,
   ],
   controllers: [AdminController],
   providers: [AdminService],

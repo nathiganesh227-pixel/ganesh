@@ -39,6 +39,41 @@ abstract class AdminRepository {
   Future<ApiResponse<AdminCatalogItem>> publishVerticalItem(String vertical, String id);
   Future<ApiResponse<AdminCatalogItem>> unpublishVerticalItem(String vertical, String id);
 
+  // Operations Search
+  Future<ApiResponse<List<AdminSearchResult>>> searchOperations(String query);
+
+  // Bookings Operations
+  Future<ApiResponse<List<AdminBooking>>> getBookings({
+    String? vertical,
+    String? status,
+    String? paymentStatus,
+    String? search,
+    int limit = 50,
+    int offset = 0,
+  });
+  Future<ApiResponse<AdminBookingDetail>> getBookingDetails(String id);
+  Future<ApiResponse<dynamic>> refundBooking(String id, String reason);
+
+  // Payments Operations
+  Future<ApiResponse<List<AdminPayment>>> getPayments({
+    String? status,
+    String? search,
+    int limit = 50,
+    int offset = 0,
+  });
+
+  // Rewards Adjustment
+  Future<ApiResponse<dynamic>> adjustUserRewards(String userId, int amount, String reason);
+
+  // System Health
+  Future<ApiResponse<AdminSystemHealth>> getSystemHealth();
+
+  // Notifications
+  Future<ApiResponse<List<AdminNotificationItem>>> getNotifications({int limit = 50, int offset = 0});
+
+  // Incidents
+  Future<ApiResponse<List<AdminIncident>>> getIncidents({int limit = 50, int offset = 0});
+
   // Audit Logs
   Future<ApiResponse<List<AdminAuditLog>>> getAuditLogs({int limit = 50, int offset = 0});
 }

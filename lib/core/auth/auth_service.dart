@@ -4,12 +4,14 @@ import '../network/api_endpoints.dart';
 
 enum UserRole {
   user,
-  admin;
+  admin,
+  operator;
 
   static UserRole fromString(String? role) {
     if (role == null) return UserRole.user;
     final r = role.toLowerCase().trim();
     if (r == 'admin') return UserRole.admin;
+    if (r == 'operator') return UserRole.operator;
     return UserRole.user;
   }
 }
@@ -36,6 +38,8 @@ class PlazaUser {
   });
 
   bool get isAdmin => role == UserRole.admin;
+  bool get isOperator => role == UserRole.operator;
+  bool get canAccessAdmin => isAdmin || isOperator;
 
   factory PlazaUser.fromJson(Map<String, dynamic> json) {
     final roleStr = (json['role'] as String?)?.toLowerCase();
@@ -47,7 +51,7 @@ class PlazaUser {
       tier: json['tier'] as String? ?? 'PLAZA Black Tier',
       membershipId: json['membershipId'] as String? ?? 'PLZ-BLK-88210',
       rewardPoints: (json['rewardPoints'] as num?)?.toInt() ?? 2480,
-      role: roleStr == 'admin' ? UserRole.admin : UserRole.user,
+      role: UserRole.fromString(roleStr),
     );
   }
 
@@ -92,6 +96,9 @@ class AuthService extends ChangeNotifier {
   PlazaUser? get currentUser => _currentUser;
   bool get isAuthenticated => _authToken != null || _currentUser != null;
   String? get authToken => _authToken;
+  bool get isAdmin => _currentUser?.isAdmin ?? false;
+  bool get isOperator => _currentUser?.isOperator ?? false;
+  bool get canAccessAdmin => _currentUser?.canAccessAdmin ?? false;
 
   Future<AuthResult> loginWithResult({required String email, required String password}) async {
     try {

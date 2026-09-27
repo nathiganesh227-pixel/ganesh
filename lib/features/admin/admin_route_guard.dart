@@ -14,9 +14,9 @@ class AdminRouteGuard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final user = AuthService.instance.currentUser;
-    final isAdmin = user?.isAdmin == true;
+    final canAccess = user?.canAccessAdmin == true;
 
-    if (isAdmin) {
+    if (canAccess) {
       return child;
     }
 
