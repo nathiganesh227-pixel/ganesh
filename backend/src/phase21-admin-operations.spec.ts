@@ -621,7 +621,7 @@ describe('Phase 21 — Production Admin & Operations Console', () => {
         AdminController.prototype.refundBooking,
         AdminController,
       ]);
-      expect(roles).toEqual([UserRole.ADMIN]);
+      expect(roles).toEqual([UserRole.ADMIN, UserRole.SUPER_ADMIN]);
     });
   });
 

@@ -25,6 +25,14 @@ import { AuditLogEntity } from './database/entities/audit-log.entity';
 import { ScreenEntity } from './database/entities/screen.entity';
 import { ShowEntity } from './database/entities/show.entity';
 import { PaymentEntity } from './database/entities/payment.entity';
+import { PartnerEntity } from './database/entities/partner.entity';
+import { PartnerUserEntity } from './database/entities/partner-user.entity';
+import { PartnerBusinessEntity } from './database/entities/partner-business.entity';
+import { PartnerDocumentEntity } from './database/entities/partner-document.entity';
+import { PartnerApprovalEntity } from './database/entities/partner-approval.entity';
+import { PartnerInvitationEntity } from './database/entities/partner-invitation.entity';
+import { PartnerPayoutProfileEntity } from './database/entities/partner-payout-profile.entity';
+import { PartnerAuditLogEntity } from './database/entities/partner-audit-log.entity';
 
 import { MoviesModule } from './modules/movies/movies.module';
 import { DiningModule } from './modules/dining/dining.module';
@@ -41,6 +49,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { SearchModule } from './modules/search/search.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { PartnersModule } from './modules/partners/partners.module';
 
 @Module({
   imports: [
@@ -95,6 +104,14 @@ import { AdminModule } from './modules/admin/admin.module';
         ScreenEntity,
         ShowEntity,
         PaymentEntity,
+        PartnerEntity,
+        PartnerUserEntity,
+        PartnerBusinessEntity,
+        PartnerDocumentEntity,
+        PartnerApprovalEntity,
+        PartnerInvitationEntity,
+        PartnerPayoutProfileEntity,
+        PartnerAuditLogEntity,
       ],
       synchronize:
         process.env.DB_SYNC === 'true' ||
@@ -119,6 +136,7 @@ import { AdminModule } from './modules/admin/admin.module';
     SearchModule,
     AuthModule,
     AdminModule,
+    PartnersModule,
   ],
   controllers: [AppController],
   providers: [

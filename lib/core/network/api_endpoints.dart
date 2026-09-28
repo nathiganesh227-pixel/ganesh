@@ -90,4 +90,30 @@ class ApiEndpoints {
   static String adminAdjustRewards(String id) => '/admin/users/$id/rewards';
   static const String adminNotifications = '/admin/notifications';
   static const String adminIncidents = '/admin/incidents';
+
+  // Phase 22 — Partner Portal Endpoints
+  static const String partnerOnboard = '/partners/onboard';
+  static String partnerProfile(String id) => '/partners/$id/profile';
+  static String partnerDocuments(String id) => '/partners/$id/documents';
+  static String partnerSubmit(String id) => '/partners/$id/submit';
+  static String partnerBusinesses(String id) => '/partners/$id/businesses';
+  static String partnerSubmitListing(String id, String bId) => '/partners/$id/businesses/$bId/submit';
+  static String partnerPublishListing(String id, String bId) => '/partners/$id/businesses/$bId/publish';
+  static String partnerUnpublishListing(String id, String bId) => '/partners/$id/businesses/$bId/unpublish';
+  static String partnerBookings(String id) => '/partners/$id/bookings';
+  static String partnerCheckIn(String id, String bId) => '/partners/$id/bookings/$bId/checkin';
+  static String partnerStaff(String id) => '/partners/$id/staff';
+  static String partnerInviteStaff(String id) => '/partners/$id/staff/invite';
+  static String partnerRemoveStaff(String id, String uId) => '/partners/$id/staff/$uId';
+  static String partnerPayout(String id) => '/partners/$id/payout';
+  static String partnerDashboard(String id) => '/partners/$id/dashboard';
+
+  // Phase 22 — Admin Partner Review Endpoints
+  static const String adminPartners = '/admin/partners';
+  static String adminPartnerDetails(String id) => '/admin/partners/$id';
+  static String adminReviewPartner(String id) => '/admin/partners/$id/review';
+  static String adminSuspendPartner(String id) => '/admin/partners/$id/suspend';
+  static String adminResumePartner(String id) => '/admin/partners/$id/resume';
+  static String adminReviewDocument(String id, String docId) => '/admin/partners/$id/documents/$docId/review';
+  static String adminReviewListing(String id, String bId) => '/admin/partners/$id/businesses/$bId/review';
 }

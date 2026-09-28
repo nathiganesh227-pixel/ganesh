@@ -21,6 +21,14 @@ import { AuditLogEntity } from './entities/audit-log.entity';
 import { ScreenEntity } from './entities/screen.entity';
 import { ShowEntity } from './entities/show.entity';
 import { PaymentEntity } from './entities/payment.entity';
+import { PartnerEntity } from './entities/partner.entity';
+import { PartnerUserEntity } from './entities/partner-user.entity';
+import { PartnerBusinessEntity } from './entities/partner-business.entity';
+import { PartnerDocumentEntity } from './entities/partner-document.entity';
+import { PartnerApprovalEntity } from './entities/partner-approval.entity';
+import { PartnerInvitationEntity } from './entities/partner-invitation.entity';
+import { PartnerPayoutProfileEntity } from './entities/partner-payout-profile.entity';
+import { PartnerAuditLogEntity } from './entities/partner-audit-log.entity';
 
 dotenv.config();
 
@@ -44,6 +52,14 @@ export const ALL_ENTITIES = [
   ScreenEntity,
   ShowEntity,
   PaymentEntity,
+  PartnerEntity,
+  PartnerUserEntity,
+  PartnerBusinessEntity,
+  PartnerDocumentEntity,
+  PartnerApprovalEntity,
+  PartnerInvitationEntity,
+  PartnerPayoutProfileEntity,
+  PartnerAuditLogEntity,
 ];
 
 export const AppDataSource = new DataSource(

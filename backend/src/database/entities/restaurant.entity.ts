@@ -90,6 +90,15 @@ export class RestaurantEntity {
   @Column({ default: true })
   isPublished: boolean;
 
+  @Column({ nullable: true })
+  partnerId?: string;
+
+  @Column({ nullable: true })
+  businessId?: string;
+
+  @Column({ default: 'APPROVED' })
+  approvalStatus: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

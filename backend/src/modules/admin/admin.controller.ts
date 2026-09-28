@@ -54,34 +54,34 @@ import {
 @ApiTags('admin')
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN)
+@Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
 @ApiBearerAuth()
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
-  @Get('health')
-  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @Get(['health', 'operations/health'])
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Admin health status' })
   getHealth() {
     return this.adminService.getHealth();
   }
 
-  @Get('system-health')
-  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @Get(['system-health', 'operations/system-health'])
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'System health, DB status, and gateway live/sandbox mode' })
   getSystemHealth() {
     return this.adminService.getSystemHealth();
   }
 
   @Get('dashboard')
-  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Admin dashboard metrics and catalog entity counts' })
   async getDashboard() {
     return this.adminService.getDashboardStats();
   }
 
-  @Get('search')
-  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @Get(['search', 'operations/search'])
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Global operations search across bookings, payments, users, catalog' })
   async search(@Query() query: AdminSearchQueryDto) {
     return this.adminService.searchOperations(query.q);
@@ -89,21 +89,21 @@ export class AdminController {
 
   // ---------------- BOOKINGS OPERATIONS ----------------
   @Get('bookings')
-  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'List and filter customer bookings' })
   async getBookings(@Query() query: AdminBookingQueryDto) {
     return this.adminService.getBookings(query);
   }
 
   @Get('bookings/:id')
-  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Get booking detail with customer, pricing, payment, and audit timeline' })
   async getBookingDetails(@Param('id') id: string) {
     return this.adminService.getBookingDetails(id);
   }
 
   @Post('bookings/:id/refund')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Process booking cancellation and payment refund (Admin only)' })
   async refundBooking(
     @Param('id') id: string,
@@ -115,7 +115,7 @@ export class AdminController {
 
   // ---------------- PAYMENTS OPERATIONS ----------------
   @Get('payments')
-  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'List and filter payment transactions with safe projection' })
   async getPayments(@Query() query: AdminPaymentQueryDto) {
     return this.adminService.getPayments(query);
@@ -123,15 +123,15 @@ export class AdminController {
 
   // ---------------- NOTIFICATIONS OPERATIONS ----------------
   @Get('notifications')
-  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'List customer notification delivery logs' })
   async getNotifications(@Query() query: PaginationQueryDto) {
     return this.adminService.getNotifications(query.limit, query.offset);
   }
 
   // ---------------- INCIDENTS OPERATIONS ----------------
-  @Get('incidents')
-  @Roles(UserRole.ADMIN, UserRole.OPERATOR)
+  @Get(['incidents', 'operations/incidents'])
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'List operational incidents and failure records' })
   async getIncidents(@Query() query: PaginationQueryDto) {
     return this.adminService.getIncidents(query.limit, query.offset);

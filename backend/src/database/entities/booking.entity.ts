@@ -71,6 +71,12 @@ export class BookingEntity {
   @Column('jsonb', { nullable: true })
   metadata: Record<string, any>;
 
+  @Column({ nullable: true })
+  partnerId?: string;
+
+  @Column({ nullable: true })
+  businessId?: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

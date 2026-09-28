@@ -4,6 +4,10 @@ export enum UserRole {
   USER = 'user',
   ADMIN = 'admin',
   OPERATOR = 'operator',
+  SUPER_ADMIN = 'super_admin',
+  PARTNER_OWNER = 'partner_owner',
+  PARTNER_MANAGER = 'partner_manager',
+  PARTNER_STAFF = 'partner_staff',
 }
 
 @Entity('users')

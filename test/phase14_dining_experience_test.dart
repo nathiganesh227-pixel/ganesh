@@ -220,7 +220,7 @@ void main() {
       expect(find.text('5. Contact & Guest Details'), findsOneWidget);
 
       // Select party size 4
-      await tester.tap(find.text('4'));
+      await tester.tap(find.text('4').last);
       await tester.pumpAndSettle();
 
       // Select Rooftop / Outdoor seating

@@ -41,6 +41,9 @@ class AppColors {
   // Common aliases
   static const Color surface = surfaceCard;
   static const Color border = glassBorder;
+  static const Color backgroundDark = background;
+  static const Color cardDark = surfaceCard;
+  static const Color cardBorder = glassBorder;
 
   // Typography Colors
   static const Color textPrimary = Color(0xFFF8FAFC);

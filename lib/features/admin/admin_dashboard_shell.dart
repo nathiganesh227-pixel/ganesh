@@ -17,14 +17,18 @@ import 'views/admin_payments_view.dart';
 import 'views/admin_system_health_view.dart';
 import 'views/admin_notifications_view.dart';
 import 'views/admin_incidents_view.dart';
+import 'views/admin_partners_view.dart';
+import '../../core/repositories/partner_repository.dart';
 
 class AdminDashboardShell extends StatefulWidget {
   final AdminRepository? repository;
+  final PartnerRepository? partnerRepository;
   final int initialSectionIndex;
 
   const AdminDashboardShell({
     super.key,
     this.repository,
+    this.partnerRepository,
     this.initialSectionIndex = 0,
   });
 
@@ -54,6 +58,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     _NavDestination('System Health', Icons.health_and_safety_rounded),
     _NavDestination('Incidents', Icons.warning_amber_rounded),
     _NavDestination('Notifications', Icons.notifications_active_rounded),
+    _NavDestination('Partners', Icons.handshake_rounded),
   ];
 
   @override
@@ -153,6 +158,8 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         return AdminIncidentsView(repository: widget.repository);
       case 17:
         return AdminNotificationsView(repository: widget.repository);
+      case 18:
+        return AdminPartnersView(partnerRepository: widget.partnerRepository);
       default:
         return AdminOverviewView(repository: widget.repository);
     }

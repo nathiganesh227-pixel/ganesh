@@ -5,13 +5,21 @@ import '../network/api_endpoints.dart';
 enum UserRole {
   user,
   admin,
-  operator;
+  operator,
+  superAdmin,
+  partnerOwner,
+  partnerManager,
+  partnerStaff;
 
   static UserRole fromString(String? role) {
     if (role == null) return UserRole.user;
     final r = role.toLowerCase().trim();
     if (r == 'admin') return UserRole.admin;
+    if (r == 'super_admin' || r == 'superadmin') return UserRole.superAdmin;
     if (r == 'operator') return UserRole.operator;
+    if (r == 'partner_owner' || r == 'partnerowner') return UserRole.partnerOwner;
+    if (r == 'partner_manager' || r == 'partnermanager') return UserRole.partnerManager;
+    if (r == 'partner_staff' || r == 'partnerstaff') return UserRole.partnerStaff;
     return UserRole.user;
   }
 }
@@ -25,6 +33,7 @@ class PlazaUser {
   final String membershipId;
   final int rewardPoints;
   final UserRole role;
+  final String? partnerId;
 
   const PlazaUser({
     required this.id,
@@ -35,11 +44,19 @@ class PlazaUser {
     this.membershipId = 'PLZ-BLK-88210',
     this.rewardPoints = 2480,
     this.role = UserRole.user,
+    this.partnerId,
   });
 
-  bool get isAdmin => role == UserRole.admin;
+  bool get isAdmin => role == UserRole.admin || role == UserRole.superAdmin;
+  bool get isSuperAdmin => role == UserRole.superAdmin;
   bool get isOperator => role == UserRole.operator;
   bool get canAccessAdmin => isAdmin || isOperator;
+  bool get isPartner =>
+      role == UserRole.partnerOwner ||
+      role == UserRole.partnerManager ||
+      role == UserRole.partnerStaff;
+  bool get isPartnerOwner => role == UserRole.partnerOwner;
+  bool get canAccessPartnerPortal => isPartner || isAdmin;
 
   factory PlazaUser.fromJson(Map<String, dynamic> json) {
     final roleStr = (json['role'] as String?)?.toLowerCase();
@@ -52,6 +69,7 @@ class PlazaUser {
       membershipId: json['membershipId'] as String? ?? 'PLZ-BLK-88210',
       rewardPoints: (json['rewardPoints'] as num?)?.toInt() ?? 2480,
       role: UserRole.fromString(roleStr),
+      partnerId: json['partnerId'] as String?,
     );
   }
 
