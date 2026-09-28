@@ -120,7 +120,9 @@ class _PlazaPaymentSheetState extends State<PlazaPaymentSheet> {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    final isProd = EnvironmentConfig.current == AppEnvironment.prod && !EnvironmentConfig.useMockData;
+    final isProd = EnvironmentConfig.current == AppEnvironment.prod &&
+        !EnvironmentConfig.useMockData &&
+        EnvironmentConfig.razorpayLiveEnabled;
 
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),

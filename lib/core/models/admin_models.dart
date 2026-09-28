@@ -700,6 +700,10 @@ class AdminSystemHealth {
   final int dbLatencyMs;
   final String paymentProvider;
   final String paymentMode;
+  final String canonicalPaymentMode;
+  final bool razorpayLiveEnabled;
+  final bool razorpayConfigured;
+  final String paymentConfigStatus;
   final bool paymentWebhookConfigured;
   final String smsProvider;
   final String smsMode;
@@ -712,9 +716,13 @@ class AdminSystemHealth {
     this.apiStatus = 'UP',
     this.dbStatus = 'UP',
     this.dbLatencyMs = 2,
-    this.paymentProvider = 'razorpay',
+    this.paymentProvider = 'simulated',
     this.paymentMode = 'TEST/SANDBOX',
-    this.paymentWebhookConfigured = true,
+    this.canonicalPaymentMode = 'SIMULATED',
+    this.razorpayLiveEnabled = false,
+    this.razorpayConfigured = false,
+    this.paymentConfigStatus = 'SIMULATED_READY',
+    this.paymentWebhookConfigured = false,
     this.smsProvider = 'twilio',
     this.smsMode = 'TEST/SANDBOX',
   });
@@ -734,8 +742,17 @@ class AdminSystemHealth {
       apiStatus: api['status'] as String? ?? 'UP',
       dbStatus: db['status'] as String? ?? 'UP',
       dbLatencyMs: (db['latencyMs'] as num?)?.toInt() ?? 0,
-      paymentProvider: payments['provider'] as String? ?? 'razorpay',
+      paymentProvider: payments['provider'] as String? ?? 'simulated',
       paymentMode: payments['mode'] as String? ?? 'TEST/SANDBOX',
+      canonicalPaymentMode:
+          (json['paymentMode'] ?? payments['paymentMode']) as String? ?? 'SIMULATED',
+      razorpayLiveEnabled:
+          (json['razorpayLiveEnabled'] ?? payments['razorpayLiveEnabled']) as bool? ?? false,
+      razorpayConfigured:
+          (json['razorpayConfigured'] ?? payments['razorpayConfigured']) as bool? ?? false,
+      paymentConfigStatus:
+          (json['paymentConfigStatus'] ?? payments['paymentConfigStatus']) as String? ??
+              'SIMULATED_READY',
       paymentWebhookConfigured: payments['webhookConfigured'] as bool? ?? false,
       smsProvider: notifs['smsProvider'] as String? ?? 'twilio',
       smsMode: notifs['mode'] as String? ?? 'TEST/SANDBOX',

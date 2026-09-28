@@ -24,6 +24,10 @@ import { PaymentEntity, PaymentStatus } from '../../database/entities/payment.en
 import { NotificationEntity } from '../../database/entities/notification.entity';
 import { WebhookEventEntity } from '../../database/entities/webhook-event.entity';
 import { PaymentService } from '../payments/payment.service';
+import {
+  PaymentConfigService,
+  PaymentMode,
+} from '../payments/payment-config.service';
 
 import {
   UpdateRoleDto,
@@ -757,6 +761,21 @@ export class AdminService {
   }
 
   // ---------------- SYSTEM HEALTH & GATEWAY MODE ----------------
+  getPaymentConfigStatus() {
+    const configService =
+      this.paymentService?.getConfigService?.() ?? new PaymentConfigService(process.env);
+    const summary = configService.evaluate().summary;
+    return {
+      paymentMode: summary.paymentMode,
+      razorpayLiveEnabled: summary.razorpayLiveEnabled,
+      razorpayConfigured: summary.razorpayConfigured,
+      paymentConfigStatus: summary.paymentConfigStatus,
+      activeProvider: summary.activeProvider,
+      liveOperationsAllowed: summary.liveOperationsAllowed,
+      webhookConfigured: summary.webhookConfigured,
+    };
+  }
+
   async getSystemHealth() {
     let dbStatus = 'UP';
     let dbLatencyMs = 0;
@@ -770,8 +789,11 @@ export class AdminService {
       dbStatus = 'DOWN';
     }
 
-    const razorpayKeyId = process.env.RAZORPAY_KEY_ID || '';
-    const isLiveGateway = razorpayKeyId.startsWith('rzp_live_');
+    const paymentConfig = this.getPaymentConfigStatus();
+    const isLiveGateway =
+      paymentConfig.paymentMode === PaymentMode.RAZORPAY &&
+      paymentConfig.razorpayLiveEnabled &&
+      paymentConfig.razorpayConfigured;
     const paymentGatewayMode = isLiveGateway ? 'LIVE' : 'TEST/SANDBOX';
 
     const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID || '';
@@ -783,13 +805,24 @@ export class AdminService {
       timestamp: new Date().toISOString(),
       uptimeSeconds: Math.floor(process.uptime()),
       environment: process.env.NODE_ENV || 'production',
+      paymentMode: paymentConfig.paymentMode,
+      razorpayLiveEnabled: paymentConfig.razorpayLiveEnabled,
+      razorpayConfigured: paymentConfig.razorpayConfigured,
+      paymentConfigStatus: paymentConfig.paymentConfigStatus,
       services: {
         api: { status: 'UP' },
         database: { status: dbStatus, latencyMs: dbLatencyMs },
         payments: {
-          provider: process.env.PAYMENT_PROVIDER || 'razorpay',
+          provider:
+            paymentConfig.activeProvider === 'none'
+              ? paymentConfig.paymentMode.toLowerCase()
+              : paymentConfig.activeProvider,
           mode: paymentGatewayMode,
-          webhookConfigured: !!process.env.RAZORPAY_WEBHOOK_SECRET,
+          paymentMode: paymentConfig.paymentMode,
+          razorpayLiveEnabled: paymentConfig.razorpayLiveEnabled,
+          razorpayConfigured: paymentConfig.razorpayConfigured,
+          paymentConfigStatus: paymentConfig.paymentConfigStatus,
+          webhookConfigured: paymentConfig.webhookConfigured,
         },
         notifications: {
           smsProvider: 'twilio',

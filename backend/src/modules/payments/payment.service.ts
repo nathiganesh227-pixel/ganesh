@@ -1,10 +1,22 @@
-import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  ServiceUnavailableException,
+  Optional,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RazorpayAdapter } from './providers/razorpay.adapter';
 import { SimulatedPaymentAdapter } from './providers/simulated-payment.adapter';
-import { IPaymentProvider, PaymentOrderResult, RefundResult } from './interfaces/payment-provider.interface';
+import { IPaymentProvider, RefundResult } from './interfaces/payment-provider.interface';
 import { PaymentEntity, PaymentStatus } from '../../database/entities/payment.entity';
+import {
+  PaymentConfigService,
+  PaymentMode,
+  PaymentConfigStatus,
+  SafePaymentConfigSummary,
+} from './payment-config.service';
 
 export interface PaymentIntent {
   paymentId: string;
@@ -22,7 +34,7 @@ export interface PaymentIntent {
 @Injectable()
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
-  private readonly activeProvider: IPaymentProvider;
+  private readonly configService: PaymentConfigService;
 
   constructor(
     private readonly razorpayAdapter: RazorpayAdapter,
@@ -30,18 +42,50 @@ export class PaymentService {
     @Optional()
     @InjectRepository(PaymentEntity)
     private readonly paymentRepo?: Repository<PaymentEntity>,
+    @Optional()
+    private readonly paymentConfigService?: PaymentConfigService,
   ) {
-    const providerType = process.env.PAYMENT_PROVIDER || 'razorpay';
-    if (providerType === 'razorpay') {
-      this.activeProvider = this.razorpayAdapter;
-    } else {
-      this.activeProvider = this.simulatedAdapter;
+    this.configService = this.paymentConfigService ?? new PaymentConfigService();
+    const summary = this.configService.validateConfiguration();
+    this.logger.log(
+      `[PaymentService] Initialized with paymentMode=${summary.paymentMode}, status=${summary.paymentConfigStatus}, liveEnabled=${summary.razorpayLiveEnabled}`,
+    );
+  }
+
+  getConfigService(): PaymentConfigService {
+    return this.configService;
+  }
+
+  getSafeConfigSummary(): SafePaymentConfigSummary {
+    return this.configService.getSafeSummary();
+  }
+
+  /**
+   * Deterministically resolves the active payment provider.
+   * NEVER falls back from RAZORPAY to SIMULATED when live payments are disabled or misconfigured.
+   */
+  private resolveActiveProvider(): IPaymentProvider {
+    const summary = this.configService.validateConfiguration();
+
+    if (summary.paymentMode === PaymentMode.SIMULATED) {
+      if (summary.razorpayLiveEnabled) {
+        throw new ServiceUnavailableException(
+          'Payment configuration conflict: live Razorpay cannot be enabled in SIMULATED mode',
+        );
+      }
+      return this.simulatedAdapter;
     }
-    this.logger.log(`[PaymentService] Initialized with active provider: ${this.activeProvider.providerName}`);
+
+    if (summary.paymentMode === PaymentMode.RAZORPAY) {
+      this.configService.assertRazorpayLiveOperationAllowed();
+      return this.razorpayAdapter;
+    }
+
+    throw new ServiceUnavailableException('Unsupported payment mode');
   }
 
   getProvider(): IPaymentProvider {
-    return this.activeProvider;
+    return this.resolveActiveProvider();
   }
 
   getRazorpayAdapter(): RazorpayAdapter {
@@ -66,6 +110,15 @@ export class PaymentService {
     }
 
     if (amount === 0) {
+      // Even for complimentary bookings, ensure configuration itself is valid
+      const summary = this.configService.validateConfiguration();
+      if (
+        summary.paymentMode === PaymentMode.RAZORPAY &&
+        summary.paymentConfigStatus === PaymentConfigStatus.RAZORPAY_MISCONFIGURED
+      ) {
+        throw new ServiceUnavailableException('Razorpay payment configuration is incomplete');
+      }
+
       const paymentId = `PAY_FREE_${Date.now()}`;
       if (this.paymentRepo) {
         const payment = this.paymentRepo.create({
@@ -94,7 +147,9 @@ export class PaymentService {
       };
     }
 
-    const order = await this.activeProvider.createOrder({
+    const activeProvider = this.resolveActiveProvider();
+
+    const order = await activeProvider.createOrder({
       bookingId,
       amount,
       currency: 'INR',
@@ -104,7 +159,7 @@ export class PaymentService {
 
     const paymentId = `PAY_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const transactionRef = `TXN_${paymentMethod.toUpperCase()}_${order.orderId}`;
-    const isSimulated = this.activeProvider.providerName === 'simulated';
+    const isSimulated = activeProvider.providerName === 'simulated';
 
     if (this.paymentRepo) {
       const payment = this.paymentRepo.create({
@@ -113,7 +168,7 @@ export class PaymentService {
         userId,
         amount,
         currency: 'INR',
-        provider: this.activeProvider.providerName,
+        provider: activeProvider.providerName,
         providerOrderId: order.orderId,
         status: isSimulated ? PaymentStatus.CAPTURED : PaymentStatus.CREATED,
         paymentMethod,
@@ -134,7 +189,7 @@ export class PaymentService {
       status: 'COMPLETED',
       transactionRef,
       timestamp: new Date().toISOString(),
-      provider: this.activeProvider.providerName,
+      provider: activeProvider.providerName,
       orderId: order.orderId,
       keyId: order.keyId,
     };
@@ -150,7 +205,43 @@ export class PaymentService {
     signature: string;
     secret?: string;
   }): Promise<{ success: boolean; payment?: PaymentEntity; reason?: string }> {
-    const isValid = this.activeProvider.verifyPaymentSignature(
+    const activeProvider = this.resolveActiveProvider();
+
+    let paymentRecord: PaymentEntity | undefined;
+    if (this.paymentRepo) {
+      paymentRecord =
+        (await this.paymentRepo.findOne({
+          where: [
+            { bookingId: options.bookingId },
+            { providerOrderId: options.orderId },
+            { id: options.paymentId },
+          ],
+        })) ?? undefined;
+
+      if (paymentRecord) {
+        if (
+          paymentRecord.status === PaymentStatus.FAILED ||
+          paymentRecord.status === PaymentStatus.REFUNDED ||
+          paymentRecord.status === PaymentStatus.REFUND_PENDING
+        ) {
+          throw new BadRequestException(
+            `Invalid payment state transition: cannot transition from ${paymentRecord.status} to CAPTURED`,
+          );
+        }
+
+        if (
+          paymentRecord.provider &&
+          paymentRecord.provider !== activeProvider.providerName &&
+          paymentRecord.provider !== 'complimentary'
+        ) {
+          throw new BadRequestException(
+            `Payment mode mismatch: cannot verify ${paymentRecord.provider} payment while in ${activeProvider.providerName} mode`,
+          );
+        }
+      }
+    }
+
+    const isValid = activeProvider.verifyPaymentSignature(
       {
         orderId: options.orderId,
         paymentId: options.paymentId,
@@ -160,31 +251,22 @@ export class PaymentService {
     );
 
     if (!isValid) {
-      this.logger.warn(`[PaymentService] Invalid signature for payment ${options.paymentId}, order ${options.orderId}`);
+      this.logger.warn(
+        `[PaymentService] Invalid signature for payment ${options.paymentId}, order ${options.orderId}`,
+      );
       return { success: false, reason: 'Invalid payment signature' };
     }
 
-    let paymentRecord: PaymentEntity | undefined;
-    if (this.paymentRepo) {
-      paymentRecord = await this.paymentRepo.findOne({
-        where: [
-          { bookingId: options.bookingId },
-          { providerOrderId: options.orderId },
-          { id: options.paymentId },
-        ],
-      });
-
-      if (paymentRecord) {
-        paymentRecord.status = PaymentStatus.CAPTURED;
-        paymentRecord.providerPaymentId = options.paymentId;
-        paymentRecord.providerSignature = options.signature;
-        paymentRecord.metadata = {
-          ...paymentRecord.metadata,
-          capturedAt: new Date().toISOString(),
-          verification: 'HMAC_SHA256_VERIFIED',
-        };
-        await this.paymentRepo.save(paymentRecord);
-      }
+    if (this.paymentRepo && paymentRecord) {
+      paymentRecord.status = PaymentStatus.CAPTURED;
+      paymentRecord.providerPaymentId = options.paymentId;
+      paymentRecord.providerSignature = options.signature;
+      paymentRecord.metadata = {
+        ...paymentRecord.metadata,
+        capturedAt: new Date().toISOString(),
+        verification: 'HMAC_SHA256_VERIFIED',
+      };
+      await this.paymentRepo.save(paymentRecord);
     }
 
     this.logger.log(`[PaymentService] Payment verified successfully for booking ${options.bookingId}`);
@@ -198,6 +280,15 @@ export class PaymentService {
     if (!this.paymentRepo) return null;
     const payment = await this.paymentRepo.findOne({ where: { bookingId } });
     if (payment) {
+      if (
+        payment.status === PaymentStatus.CAPTURED ||
+        payment.status === PaymentStatus.REFUNDED ||
+        payment.status === PaymentStatus.REFUND_PENDING
+      ) {
+        throw new BadRequestException(
+          `Invalid payment state transition: cannot transition from ${payment.status} to FAILED`,
+        );
+      }
       payment.status = PaymentStatus.FAILED;
       payment.failureReason = reason;
       await this.paymentRepo.save(payment);
@@ -215,14 +306,11 @@ export class PaymentService {
     amount: number,
     reason = 'Booking cancelled by user',
   ): Promise<RefundResult> {
-    const result = await this.activeProvider.refund({
-      paymentId,
-      amount,
-      reason,
-    });
+    const activeProvider = this.resolveActiveProvider();
 
+    let payment: PaymentEntity | null = null;
     if (this.paymentRepo) {
-      const payment = await this.paymentRepo.findOne({
+      payment = await this.paymentRepo.findOne({
         where: [
           { id: paymentId },
           { providerPaymentId: paymentId },
@@ -231,15 +319,37 @@ export class PaymentService {
       });
 
       if (payment) {
-        payment.status = PaymentStatus.REFUNDED;
-        payment.refundAmount = amount;
-        payment.refundId = result.refundId;
-        payment.metadata = {
-          ...payment.metadata,
-          refund: result,
-        };
-        await this.paymentRepo.save(payment);
+        if (
+          payment.status === PaymentStatus.REFUNDED ||
+          payment.status === PaymentStatus.REFUND_PENDING
+        ) {
+          throw new BadRequestException(
+            `Invalid payment state transition: payment is already in ${payment.status} state`,
+          );
+        }
+        if (payment.status === PaymentStatus.FAILED) {
+          throw new BadRequestException(
+            'Invalid payment state transition: cannot refund a FAILED payment',
+          );
+        }
       }
+    }
+
+    const result = await activeProvider.refund({
+      paymentId,
+      amount,
+      reason,
+    });
+
+    if (this.paymentRepo && payment) {
+      payment.status = PaymentStatus.REFUNDED;
+      payment.refundAmount = amount;
+      payment.refundId = result.refundId;
+      payment.metadata = {
+        ...payment.metadata,
+        refund: result,
+      };
+      await this.paymentRepo.save(payment);
     }
 
     return result;

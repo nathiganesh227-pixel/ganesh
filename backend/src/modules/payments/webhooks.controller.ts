@@ -128,6 +128,37 @@ export class WebhooksController {
 
     const booking = await this.bookingRepo.findOne({ where: { id: bookingId } });
     if (booking) {
+      // Update dedicated PaymentEntity
+      if (this.paymentRepo) {
+        const payment = await this.paymentRepo.findOne({
+          where: [
+            { bookingId },
+            { providerOrderId: orderEntity?.id },
+            { id: paymentEntity?.id },
+          ],
+        });
+        if (payment) {
+          if (
+            payment.status === PaymentStatus.FAILED ||
+            payment.status === PaymentStatus.REFUNDED ||
+            payment.status === PaymentStatus.REFUND_PENDING
+          ) {
+            throw new BadRequestException(
+              `Invalid payment state transition: cannot transition from ${payment.status} to CAPTURED`,
+            );
+          }
+          payment.status = PaymentStatus.CAPTURED;
+          payment.providerPaymentId = paymentEntity?.id;
+          await this.paymentRepo.save(payment);
+        }
+      }
+
+      if (booking.status === BookingStatus.FAILED || booking.status === BookingStatus.CANCELLED) {
+        throw new BadRequestException(
+          `Invalid booking state transition: cannot capture payment for ${booking.status} booking`,
+        );
+      }
+
       const isFirstConfirmation = booking.status === BookingStatus.PENDING || !booking.metadata?.paymentVerified;
       booking.status = BookingStatus.UPCOMING;
       booking.metadata = {
@@ -142,22 +173,6 @@ export class WebhooksController {
           capturedAt: new Date().toISOString(),
         },
       };
-
-      // Update dedicated PaymentEntity
-      if (this.paymentRepo) {
-        let payment = await this.paymentRepo.findOne({
-          where: [
-            { bookingId },
-            { providerOrderId: orderEntity?.id },
-            { id: paymentEntity?.id },
-          ],
-        });
-        if (payment) {
-          payment.status = PaymentStatus.CAPTURED;
-          payment.providerPaymentId = paymentEntity?.id;
-          await this.paymentRepo.save(payment);
-        }
-      }
 
       // Idempotent rewards awarding
       if (isFirstConfirmation && !booking.metadata?.rewardAwarded && this.userRepo) {
@@ -200,22 +215,31 @@ export class WebhooksController {
     if (bookingId) {
       const booking = await this.bookingRepo.findOne({ where: { id: bookingId } });
       if (booking) {
+        // Update dedicated PaymentEntity
+        if (this.paymentRepo) {
+          const payment = await this.paymentRepo.findOne({ where: { bookingId } });
+          if (payment) {
+            if (
+              payment.status === PaymentStatus.CAPTURED ||
+              payment.status === PaymentStatus.REFUNDED ||
+              payment.status === PaymentStatus.REFUND_PENDING
+            ) {
+              throw new BadRequestException(
+                `Invalid payment state transition: cannot transition from ${payment.status} to FAILED`,
+              );
+            }
+            payment.status = PaymentStatus.FAILED;
+            payment.failureReason = paymentEntity?.error_description || 'Payment authorization failed';
+            await this.paymentRepo.save(payment);
+          }
+        }
+
         booking.status = BookingStatus.FAILED;
         booking.metadata = {
           ...booking.metadata,
           failureReason: paymentEntity?.error_description || 'Payment authorization failed',
         };
         await this.bookingRepo.save(booking);
-
-        // Update dedicated PaymentEntity
-        if (this.paymentRepo) {
-          const payment = await this.paymentRepo.findOne({ where: { bookingId } });
-          if (payment) {
-            payment.status = PaymentStatus.FAILED;
-            payment.failureReason = paymentEntity?.error_description || 'Payment authorization failed';
-            await this.paymentRepo.save(payment);
-          }
-        }
 
         // Restore inventory if applicable
         if (booking.type === BookingType.EVENT && booking.metadata?.eventId && booking.metadata?.tierId && this.eventRepo) {

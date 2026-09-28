@@ -6,6 +6,7 @@ import { PaymentEntity } from '../../database/entities/payment.entity';
 import { User } from '../../database/entities/user.entity';
 import { EventEntity } from '../../database/entities/event.entity';
 import { ActivityEntity } from '../../database/entities/activity.entity';
+import { PaymentConfigService } from './payment-config.service';
 import { PaymentService } from './payment.service';
 import { RazorpayAdapter } from './providers/razorpay.adapter';
 import { SimulatedPaymentAdapter } from './providers/simulated-payment.adapter';
@@ -26,11 +27,18 @@ import { TwilioSmsAdapter } from '../notifications/providers/twilio-sms.adapter'
   ],
   controllers: [WebhooksController, PaymentsController],
   providers: [
+    PaymentConfigService,
     PaymentService,
     RazorpayAdapter,
     SimulatedPaymentAdapter,
     TwilioSmsAdapter,
   ],
-  exports: [PaymentService, RazorpayAdapter, SimulatedPaymentAdapter, TwilioSmsAdapter],
+  exports: [
+    PaymentConfigService,
+    PaymentService,
+    RazorpayAdapter,
+    SimulatedPaymentAdapter,
+    TwilioSmsAdapter,
+  ],
 })
 export class PaymentsModule {}

@@ -29,8 +29,10 @@ services:
         value: 7d
       - key: CORS_ORIGIN
         value: "*"
-      - key: PAYMENT_PROVIDER
-        value: razorpay
+      - key: PAYMENT_MODE
+        value: SIMULATED
+      - key: RAZORPAY_LIVE_ENABLED
+        value: "false"
       - key: RAZORPAY_KEY_ID
         sync: false
       - key: RAZORPAY_KEY_SECRET

@@ -69,6 +69,15 @@ export class PaymentsController {
       throw new BadRequestException('Missing required payment verification parameters');
     }
 
+    if (
+      process.env.PAYMENT_MODE === 'RAZORPAY' &&
+      String(process.env.RAZORPAY_LIVE_ENABLED || '').trim().toLowerCase() !== 'true'
+    ) {
+      throw new BadRequestException(
+        'Razorpay live payments are disabled (RAZORPAY_LIVE_DISABLED). Simulated fallback is forbidden.',
+      );
+    }
+
     // 1. Verify HMAC-SHA256 signature
     const isValid = this.razorpayAdapter.verifyPaymentSignature({
       orderId: razorpayOrderId,
@@ -97,6 +106,16 @@ export class PaymentsController {
     });
 
     if (payment) {
+      if (
+        payment.status === PaymentStatus.FAILED ||
+        payment.status === PaymentStatus.REFUNDED ||
+        payment.status === PaymentStatus.REFUND_PENDING
+      ) {
+        throw new BadRequestException(
+          `Invalid payment state transition: cannot transition from ${payment.status} to CAPTURED`,
+        );
+      }
+
       payment.status = PaymentStatus.CAPTURED;
       payment.providerPaymentId = razorpayPaymentId;
       payment.providerSignature = razorpaySignature;
@@ -107,6 +126,12 @@ export class PaymentsController {
       };
       await this.paymentRepo.save(payment);
     } else {
+      if (booking.status === BookingStatus.FAILED || booking.status === BookingStatus.CANCELLED) {
+        throw new BadRequestException(
+          `Invalid booking state transition: cannot capture payment for ${booking.status} booking`,
+        );
+      }
+
       payment = this.paymentRepo.create({
         id: `PAY_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         bookingId,
@@ -199,6 +224,15 @@ export class PaymentsController {
     // 1. Update PaymentEntity status
     const payment = await this.paymentRepo.findOne({ where: { bookingId } });
     if (payment) {
+      if (
+        payment.status === PaymentStatus.CAPTURED ||
+        payment.status === PaymentStatus.REFUNDED ||
+        payment.status === PaymentStatus.REFUND_PENDING
+      ) {
+        throw new BadRequestException(
+          `Invalid payment state transition: cannot transition from ${payment.status} to FAILED`,
+        );
+      }
       payment.status = PaymentStatus.FAILED;
       payment.failureReason = reason;
       await this.paymentRepo.save(payment);

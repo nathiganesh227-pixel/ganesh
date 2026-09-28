@@ -62,6 +62,9 @@ class EnvironmentConfig {
 
   static bool get isLiveRender => baseUrl.contains('onrender.com');
 
+  static const bool razorpayLiveEnabled =
+      bool.fromEnvironment('RAZORPAY_LIVE_ENABLED', defaultValue: false);
+
   static bool useMockData = false;
 
   static const Duration connectTimeout = Duration(seconds: 10);

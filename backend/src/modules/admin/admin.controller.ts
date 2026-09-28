@@ -73,6 +73,13 @@ export class AdminController {
     return this.adminService.getSystemHealth();
   }
 
+  @Get(['payments/config-status', 'operations/payment-config'])
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'Safe payment mode and Razorpay activation status (no secrets)' })
+  getPaymentConfigStatus() {
+    return this.adminService.getPaymentConfigStatus();
+  }
+
   @Get('dashboard')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'Admin dashboard metrics and catalog entity counts' })

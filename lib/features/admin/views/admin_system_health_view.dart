@@ -278,9 +278,78 @@ class _AdminSystemHealthViewState extends State<AdminSystemHealthView> {
                 ),
               ],
             ),
+            const SizedBox(height: 24),
+
+            // Informational Payment Configuration Status Card (Read-Only, No Live Activation Button)
+            GlassCard(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Flexible(
+                        child: Text('Payment Configuration & Safety Gate', style: AppTypography.headingSmall),
+                      ),
+                      const SizedBox(width: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: (_health.razorpayLiveEnabled ? AppColors.liveGreen : AppColors.warningOrange)
+                              .withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          _health.paymentConfigStatus,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: _health.razorpayLiveEnabled ? AppColors.liveGreen : AppColors.warningOrange,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 32,
+                    runSpacing: 12,
+                    children: [
+                      _buildConfigIndicator('Payment Mode', _health.canonicalPaymentMode.toUpperCase()),
+                      _buildConfigIndicator(
+                        'Razorpay',
+                        'Configured: ${_health.razorpayConfigured ? "YES" : "NO"}',
+                      ),
+                      _buildConfigIndicator(
+                        'Live Payments',
+                        _health.razorpayLiveEnabled ? 'ENABLED' : 'DISABLED',
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildConfigIndicator(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: AppTypography.caption.copyWith(color: AppColors.textSecondary),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.bold),
+        ),
+      ],
     );
   }
 
