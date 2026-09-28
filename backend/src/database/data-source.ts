@@ -31,6 +31,7 @@ import { PartnerPayoutProfileEntity } from './entities/partner-payout-profile.en
 import { PartnerAuditLogEntity } from './entities/partner-audit-log.entity';
 import { IntegrationMappingEntity } from './entities/integration-mapping.entity';
 import { IntegrationSyncRunEntity } from './entities/integration-sync-run.entity';
+import { SeatLockEntity } from './entities/seat-lock.entity';
 
 dotenv.config();
 
@@ -45,6 +46,7 @@ export const ALL_ENTITIES = [
   HotelEntity,
   SportsVenueEntity,
   BookingEntity,
+  SeatLockEntity,
   PlanEntity,
   RewardEntity,
   NotificationEntity,

@@ -1,4 +1,4 @@
-import { Entity, PrimaryColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 
 export enum BookingType {
   MOVIE = 'movie',
@@ -17,20 +17,27 @@ export enum BookingStatus {
   ACTIVE = 'active',
   COMPLETED = 'completed',
   CANCELLED = 'cancelled',
+  REFUND_PENDING = 'refund_pending',
+  REFUNDED = 'refunded',
   FAILED = 'failed',
 }
 
 export const VALID_BOOKING_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   [BookingStatus.PENDING]: [BookingStatus.UPCOMING, BookingStatus.CONFIRMED, BookingStatus.FAILED, BookingStatus.CANCELLED],
-  [BookingStatus.UPCOMING]: [BookingStatus.ACTIVE, BookingStatus.CANCELLED, BookingStatus.COMPLETED],
-  [BookingStatus.CONFIRMED]: [BookingStatus.ACTIVE, BookingStatus.CANCELLED, BookingStatus.COMPLETED],
+  [BookingStatus.UPCOMING]: [BookingStatus.ACTIVE, BookingStatus.CANCELLED, BookingStatus.REFUND_PENDING, BookingStatus.REFUNDED, BookingStatus.COMPLETED],
+  [BookingStatus.CONFIRMED]: [BookingStatus.ACTIVE, BookingStatus.CANCELLED, BookingStatus.REFUND_PENDING, BookingStatus.REFUNDED, BookingStatus.COMPLETED],
   [BookingStatus.ACTIVE]: [BookingStatus.COMPLETED, BookingStatus.CANCELLED],
   [BookingStatus.COMPLETED]: [],
-  [BookingStatus.CANCELLED]: [],
+  [BookingStatus.CANCELLED]: [BookingStatus.REFUND_PENDING, BookingStatus.REFUNDED],
+  [BookingStatus.REFUND_PENDING]: [BookingStatus.REFUNDED],
+  [BookingStatus.REFUNDED]: [],
   [BookingStatus.FAILED]: [],
 };
 
 @Entity('bookings')
+@Index(['userId', 'status'])
+@Index(['type', 'date'])
+@Index(['partnerId', 'businessId'])
 export class BookingEntity {
   @PrimaryColumn()
   id: string;

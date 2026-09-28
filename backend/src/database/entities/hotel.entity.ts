@@ -57,6 +57,7 @@ export class HotelEntity {
     roomSize: string;
     highlights: string[];
     isAvailable: boolean;
+    availableRooms?: number;
   }[];
 
   @Column('jsonb', { nullable: true })

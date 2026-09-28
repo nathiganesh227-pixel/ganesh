@@ -44,6 +44,7 @@ export class ProductEntity {
     name: string;
     priceDelta: number;
     inStock: boolean;
+    stock?: number;
   }[];
 
   @Column()
@@ -69,6 +70,9 @@ export class ProductEntity {
 
   @Column({ default: true })
   inStock: boolean;
+
+  @Column('int', { nullable: true })
+  stock?: number;
 
   @Column({ default: true })
   isPublished: boolean;

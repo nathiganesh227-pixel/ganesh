@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BookingEntity } from '../../database/entities/booking.entity';
 import { IdempotencyRecordEntity } from '../../database/entities/idempotency-record.entity';
+import { SeatLockEntity } from '../../database/entities/seat-lock.entity';
 import { BookingsService } from './bookings.service';
 import { IdempotencyService } from './idempotency.service';
 import { BookingsController } from './bookings.controller';
@@ -10,7 +11,7 @@ import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([BookingEntity, IdempotencyRecordEntity]),
+    TypeOrmModule.forFeature([BookingEntity, IdempotencyRecordEntity, SeatLockEntity]),
     AuthModule,
     PaymentsModule,
   ],

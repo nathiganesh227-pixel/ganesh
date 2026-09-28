@@ -35,6 +35,7 @@ import { PartnerPayoutProfileEntity } from './database/entities/partner-payout-p
 import { PartnerAuditLogEntity } from './database/entities/partner-audit-log.entity';
 import { IntegrationMappingEntity } from './database/entities/integration-mapping.entity';
 import { IntegrationSyncRunEntity } from './database/entities/integration-sync-run.entity';
+import { SeatLockEntity } from './database/entities/seat-lock.entity';
 
 import { MoviesModule } from './modules/movies/movies.module';
 import { DiningModule } from './modules/dining/dining.module';
@@ -117,6 +118,7 @@ import { IntegrationsModule } from './modules/integrations/integrations.module';
         PartnerAuditLogEntity,
         IntegrationMappingEntity,
         IntegrationSyncRunEntity,
+        SeatLockEntity,
       ],
       synchronize:
         process.env.DB_SYNC === 'true' ||

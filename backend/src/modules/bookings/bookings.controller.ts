@@ -50,6 +50,39 @@ export class BookingsController {
     return this.service.cancel(id, userId);
   }
 
+  @Post('movie/lock-seats')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Acquire temporary lock on movie seats with automatic TTL expiration' })
+  async lockSeats(
+    @Request() req: any,
+    @Body() body: { theatreId: string; showtimeId: string; seatIds: string[]; ttlSeconds?: number },
+  ) {
+    const userId = req.user?.sub || req.user?.id || 'usr_default_1';
+    return this.service.lockSeats({ ...body, userId });
+  }
+
+  @Post('movie/release-seats')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Release temporary seat lock held by authenticated user' })
+  async releaseSeats(
+    @Request() req: any,
+    @Body() body: { theatreId: string; showtimeId: string; seatIds?: string[] },
+  ) {
+    const userId = req.user?.sub || req.user?.id || 'usr_default_1';
+    return this.service.releaseSeatLock({ ...body, userId });
+  }
+
+  @Post(':id/verify-pass')
+  @ApiOperation({ summary: 'Verify digital pass QR code and check-in eligibility' })
+  async verifyPass(
+    @Param('id') id: string,
+    @Body() body?: { qrCodeData?: string },
+  ) {
+    return this.service.verifyPass(id, body?.qrCodeData);
+  }
+
   @Post('movie')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
