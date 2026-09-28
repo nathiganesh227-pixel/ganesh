@@ -71,7 +71,6 @@ export class ProductEntity {
   @Column({ default: true })
   inStock: boolean;
 
-  @Column('int', { nullable: true })
   stock?: number;
 
   @Column({ default: true })
