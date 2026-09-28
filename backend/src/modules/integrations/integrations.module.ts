@@ -17,6 +17,7 @@ import { ShoppingProviderAdapter } from './adapters/shopping-provider.adapter';
 import { ProviderRegistryService } from './registry/provider-registry.service';
 import { IntegrationsService } from './integrations.service';
 import { AdminIntegrationsController } from './admin-integrations.controller';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { AdminIntegrationsController } from './admin-integrations.controller';
       IntegrationSyncRunEntity,
       BookingEntity,
     ]),
+    AuthModule,
   ],
   controllers: [AdminIntegrationsController],
   providers: [

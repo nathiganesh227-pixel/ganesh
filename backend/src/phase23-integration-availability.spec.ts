@@ -4,9 +4,12 @@ import {
   ForbiddenException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { Reflector } from '@nestjs/core';
 
+import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { IntegrationsService } from './modules/integrations/integrations.service';
 import { ProviderRegistryService } from './modules/integrations/registry/provider-registry.service';
 import { AdminIntegrationsController } from './modules/integrations/admin-integrations.controller';
@@ -691,6 +694,31 @@ describe('Phase 23 — Real Data & Availability Integration Layer', () => {
       } as any;
 
       expect(rolesGuard.canActivate(mockContextOperator)).toBe(true);
+    });
+  });
+
+  describe('IntegrationsModule NestJS Dependency Resolution', () => {
+    it('should successfully compile IntegrationsModule with AuthModule providing JwtService to JwtAuthGuard', async () => {
+      const moduleRef = await Test.createTestingModule({
+        imports: [IntegrationsModule],
+      })
+        .overrideProvider(getRepositoryToken(IntegrationMappingEntity))
+        .useValue(mockMappingRepo)
+        .overrideProvider(getRepositoryToken(IntegrationSyncRunEntity))
+        .useValue(mockSyncRunRepo)
+        .overrideProvider(getRepositoryToken(BookingEntity))
+        .useValue(mockBookingRepo)
+        .overrideProvider(getRepositoryToken(User))
+        .useValue(mockPartnerUserRepo)
+        .compile();
+
+      expect(moduleRef).toBeDefined();
+      const controller = moduleRef.get<AdminIntegrationsController>(AdminIntegrationsController);
+      expect(controller).toBeDefined();
+      const jwtGuard = moduleRef.get<JwtAuthGuard>(JwtAuthGuard);
+      expect(jwtGuard).toBeDefined();
+      const jwtServiceResolved = moduleRef.get<JwtService>(JwtService);
+      expect(jwtServiceResolved).toBeDefined();
     });
   });
 });
