@@ -74,6 +74,15 @@ export class SportsVenueEntity {
   @Column({ default: 'APPROVED' })
   approvalStatus: string;
 
+  @Column({ default: 'ADMIN' })
+  source: string; // 'ADMIN' | 'PARTNER' | 'EXTERNAL'
+
+  @Column({ default: 'AVAILABLE' })
+  availabilityStatus: string; // 'AVAILABLE' | 'LIMITED' | 'SOLD_OUT' | 'UNAVAILABLE' | 'UNKNOWN'
+
+  @Column({ type: 'timestamptz', nullable: true })
+  availabilityUpdatedAt?: Date;
+
   @CreateDateColumn()
   createdAt: Date;
 

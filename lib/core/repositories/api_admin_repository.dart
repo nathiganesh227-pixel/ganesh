@@ -2,6 +2,7 @@ import '../network/api_client.dart';
 import '../network/api_endpoints.dart';
 import '../network/api_response.dart';
 import '../models/admin_models.dart';
+import '../models/integration_models.dart';
 import 'admin_repository.dart';
 
 class ApiAdminRepository implements AdminRepository {
@@ -456,6 +457,58 @@ class ApiAdminRepository implements AdminRepository {
         }
         return [];
       },
+    );
+  }
+
+  // ---------------- PHASE 23 INTEGRATIONS ----------------
+  @override
+  Future<ApiResponse<List<IntegrationProviderInfo>>> getIntegrationProviders() {
+    return _client.get<List<IntegrationProviderInfo>>(
+      ApiEndpoints.adminIntegrationProviders,
+      fromJson: (json) {
+        if (json is List) {
+          return json.map((e) => IntegrationProviderInfo.fromJson(e as Map<String, dynamic>)).toList();
+        }
+        return [];
+      },
+    );
+  }
+
+  @override
+  Future<ApiResponse<IntegrationHealthSummary>> getIntegrationHealth() {
+    return _client.get<IntegrationHealthSummary>(
+      ApiEndpoints.adminIntegrationHealth,
+      fromJson: (json) => IntegrationHealthSummary.fromJson(json as Map<String, dynamic>),
+    );
+  }
+
+  @override
+  Future<ApiResponse<List<IntegrationSyncRun>>> getIntegrationSyncRuns({String? provider, int limit = 20, int offset = 0}) {
+    final params = {'limit': limit.toString(), 'offset': offset.toString()};
+    if (provider != null) params['provider'] = provider;
+
+    return _client.get<List<IntegrationSyncRun>>(
+      ApiEndpoints.adminIntegrationSyncRuns,
+      queryParams: params,
+      fromJson: (json) {
+        if (json is Map<String, dynamic> && json['items'] is List) {
+          return (json['items'] as List)
+              .map((e) => IntegrationSyncRun.fromJson(e as Map<String, dynamic>))
+              .toList();
+        } else if (json is List) {
+          return json.map((e) => IntegrationSyncRun.fromJson(e as Map<String, dynamic>)).toList();
+        }
+        return [];
+      },
+    );
+  }
+
+  @override
+  Future<ApiResponse<dynamic>> triggerIntegrationSync(String providerId, {String? vertical}) {
+    return _client.post<dynamic>(
+      ApiEndpoints.adminIntegrationSync(providerId),
+      body: vertical != null ? {'vertical': vertical} : {},
+      fromJson: (json) => json,
     );
   }
 }

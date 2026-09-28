@@ -116,4 +116,12 @@ class ApiEndpoints {
   static String adminResumePartner(String id) => '/admin/partners/$id/resume';
   static String adminReviewDocument(String id, String docId) => '/admin/partners/$id/documents/$docId/review';
   static String adminReviewListing(String id, String bId) => '/admin/partners/$id/businesses/$bId/review';
+
+  // Phase 23 — Real Data & Availability Integration Layer
+  static const String adminIntegrationProviders = '/admin/integrations/providers';
+  static const String adminIntegrationHealth = '/admin/integrations/health';
+  static const String adminIntegrationSyncRuns = '/admin/integrations/sync-runs';
+  static const String adminIntegrationMappings = '/admin/integrations/mappings';
+  static String adminIntegrationSync(String providerId) => '/admin/integrations/$providerId/sync';
+  static String partnerUpdateAvailability(String id, String bId) => '/partners/$id/businesses/$bId/availability';
 }

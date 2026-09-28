@@ -18,6 +18,7 @@ import 'views/admin_system_health_view.dart';
 import 'views/admin_notifications_view.dart';
 import 'views/admin_incidents_view.dart';
 import 'views/admin_partners_view.dart';
+import 'views/admin_integrations_view.dart';
 import '../../core/repositories/partner_repository.dart';
 
 class AdminDashboardShell extends StatefulWidget {
@@ -59,6 +60,7 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
     _NavDestination('Incidents', Icons.warning_amber_rounded),
     _NavDestination('Notifications', Icons.notifications_active_rounded),
     _NavDestination('Partners', Icons.handshake_rounded),
+    _NavDestination('Integrations', Icons.sync_alt_rounded),
   ];
 
   @override
@@ -160,6 +162,8 @@ class _AdminDashboardShellState extends State<AdminDashboardShell> {
         return AdminNotificationsView(repository: widget.repository);
       case 18:
         return AdminPartnersView(partnerRepository: widget.partnerRepository);
+      case 19:
+        return AdminIntegrationsView(repository: widget.repository);
       default:
         return AdminOverviewView(repository: widget.repository);
     }

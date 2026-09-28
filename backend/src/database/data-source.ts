@@ -29,6 +29,8 @@ import { PartnerApprovalEntity } from './entities/partner-approval.entity';
 import { PartnerInvitationEntity } from './entities/partner-invitation.entity';
 import { PartnerPayoutProfileEntity } from './entities/partner-payout-profile.entity';
 import { PartnerAuditLogEntity } from './entities/partner-audit-log.entity';
+import { IntegrationMappingEntity } from './entities/integration-mapping.entity';
+import { IntegrationSyncRunEntity } from './entities/integration-sync-run.entity';
 
 dotenv.config();
 
@@ -60,6 +62,8 @@ export const ALL_ENTITIES = [
   PartnerInvitationEntity,
   PartnerPayoutProfileEntity,
   PartnerAuditLogEntity,
+  IntegrationMappingEntity,
+  IntegrationSyncRunEntity,
 ];
 
 export const AppDataSource = new DataSource(

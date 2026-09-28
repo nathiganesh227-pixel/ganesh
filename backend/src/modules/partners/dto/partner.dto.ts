@@ -282,3 +282,15 @@ export class ReviewDocumentDto {
   @IsOptional()
   reason?: string;
 }
+
+export class UpdateBusinessAvailabilityDto {
+  @ApiProperty({ enum: ['AVAILABLE', 'LIMITED', 'SOLD_OUT', 'UNAVAILABLE', 'UNKNOWN'] })
+  @IsString()
+  @IsNotEmpty()
+  availabilityStatus: string;
+
+  @ApiPropertyOptional({ description: 'Operational slots, tiers, or room rates payload' })
+  @IsOptional()
+  slotsOrTiers?: any;
+}
+

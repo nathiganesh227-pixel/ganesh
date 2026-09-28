@@ -1,5 +1,6 @@
 import '../network/api_response.dart';
 import '../models/admin_models.dart';
+import '../models/integration_models.dart';
 
 abstract class AdminRepository {
   Future<ApiResponse<AdminDashboardStats>> getDashboardStats();
@@ -76,4 +77,10 @@ abstract class AdminRepository {
 
   // Audit Logs
   Future<ApiResponse<List<AdminAuditLog>>> getAuditLogs({int limit = 50, int offset = 0});
+
+  // Phase 23 — Integrations
+  Future<ApiResponse<List<IntegrationProviderInfo>>> getIntegrationProviders();
+  Future<ApiResponse<IntegrationHealthSummary>> getIntegrationHealth();
+  Future<ApiResponse<List<IntegrationSyncRun>>> getIntegrationSyncRuns({String? provider, int limit = 20, int offset = 0});
+  Future<ApiResponse<dynamic>> triggerIntegrationSync(String providerId, {String? vertical});
 }

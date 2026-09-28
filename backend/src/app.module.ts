@@ -33,6 +33,8 @@ import { PartnerApprovalEntity } from './database/entities/partner-approval.enti
 import { PartnerInvitationEntity } from './database/entities/partner-invitation.entity';
 import { PartnerPayoutProfileEntity } from './database/entities/partner-payout-profile.entity';
 import { PartnerAuditLogEntity } from './database/entities/partner-audit-log.entity';
+import { IntegrationMappingEntity } from './database/entities/integration-mapping.entity';
+import { IntegrationSyncRunEntity } from './database/entities/integration-sync-run.entity';
 
 import { MoviesModule } from './modules/movies/movies.module';
 import { DiningModule } from './modules/dining/dining.module';
@@ -50,6 +52,7 @@ import { SearchModule } from './modules/search/search.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { PartnersModule } from './modules/partners/partners.module';
+import { IntegrationsModule } from './modules/integrations/integrations.module';
 
 @Module({
   imports: [
@@ -112,6 +115,8 @@ import { PartnersModule } from './modules/partners/partners.module';
         PartnerInvitationEntity,
         PartnerPayoutProfileEntity,
         PartnerAuditLogEntity,
+        IntegrationMappingEntity,
+        IntegrationSyncRunEntity,
       ],
       synchronize:
         process.env.DB_SYNC === 'true' ||
@@ -137,6 +142,7 @@ import { PartnersModule } from './modules/partners/partners.module';
     AuthModule,
     AdminModule,
     PartnersModule,
+    IntegrationsModule,
   ],
   controllers: [AppController],
   providers: [

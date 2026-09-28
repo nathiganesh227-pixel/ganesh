@@ -54,6 +54,7 @@ import {
   SuspendPartnerDto,
   ReviewListingDto,
   ReviewDocumentDto,
+  UpdateBusinessAvailabilityDto,
 } from './dto/partner.dto';
 
 @Injectable()
@@ -451,6 +452,67 @@ export class PartnersService {
       success: true,
       message: `Listing '${business.name}' has been taken offline.`,
       business,
+    };
+  }
+
+  async updateBusinessAvailability(
+    partnerId: string,
+    businessId: string,
+    dto: UpdateBusinessAvailabilityDto,
+    actor: any,
+  ) {
+    const business = await this.partnerBusinessRepo.findOne({
+      where: { id: businessId, partnerId },
+    });
+    if (!business) {
+      throw new NotFoundException(`Listing with ID ${businessId} not found under this partner`);
+    }
+
+    const now = new Date();
+    const v = business.vertical.toLowerCase();
+    const catId = business.catalogEntityId;
+
+    if (catId) {
+      const updateData: any = {
+        availabilityStatus: dto.availabilityStatus,
+        source: 'PARTNER',
+        availabilityUpdatedAt: now,
+      };
+
+      if (v === 'dining') {
+        if (dto.slotsOrTiers) updateData.availableSlots = dto.slotsOrTiers;
+        await this.restaurantRepo.update(catId, updateData);
+      } else if (v === 'event') {
+        if (dto.slotsOrTiers) updateData.ticketTiers = dto.slotsOrTiers;
+        await this.eventRepo.update(catId, updateData);
+      } else if (v === 'activity') {
+        if (dto.slotsOrTiers) updateData.timeSlots = dto.slotsOrTiers;
+        await this.activityRepo.update(catId, updateData);
+      } else if (v === 'stay' || v === 'hotel') {
+        if (dto.slotsOrTiers) updateData.rooms = dto.slotsOrTiers;
+        await this.hotelRepo.update(catId, updateData);
+      } else if (v === 'sports') {
+        if (dto.slotsOrTiers) updateData.slots = dto.slotsOrTiers;
+        await this.sportsVenueRepo.update(catId, updateData);
+      }
+    }
+
+    await this.recordAudit(
+      partnerId,
+      actor?.sub || actor?.id,
+      actor?.email,
+      actor?.role,
+      'AVAILABILITY_UPDATED',
+      'business_listing',
+      businessId,
+      { availabilityStatus: dto.availabilityStatus, catalogId: catId },
+    );
+
+    return {
+      success: true,
+      message: `Availability updated to ${dto.availabilityStatus}`,
+      availabilityStatus: dto.availabilityStatus,
+      updatedAt: now,
     };
   }
 

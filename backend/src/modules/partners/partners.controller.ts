@@ -22,6 +22,7 @@ import {
   CreateBusinessListingDto,
   InviteStaffDto,
   UpdatePayoutProfileDto,
+  UpdateBusinessAvailabilityDto,
 } from './dto/partner.dto';
 
 @ApiTags('partners')
@@ -133,6 +134,18 @@ export class PartnersController {
     @Request() req: any,
   ) {
     return this.partnersService.unpublishListing(id, businessId, req.user);
+  }
+
+  @Patch(':id/businesses/:businessId/availability')
+  @UseGuards(PartnerTenantGuard)
+  @ApiOperation({ summary: 'Update operational availability, slots, or capacity for business' })
+  async updateAvailability(
+    @Param('id') id: string,
+    @Param('businessId') businessId: string,
+    @Body() dto: UpdateBusinessAvailabilityDto,
+    @Request() req: any,
+  ) {
+    return this.partnersService.updateBusinessAvailability(id, businessId, dto, req.user);
   }
 
   // ---------------- BOOKINGS & CHECK-IN ----------------

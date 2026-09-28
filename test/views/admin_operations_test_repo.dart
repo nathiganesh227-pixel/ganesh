@@ -1,4 +1,5 @@
 import 'package:plaza/core/models/admin_models.dart';
+import 'package:plaza/core/models/integration_models.dart';
 import 'package:plaza/core/network/api_response.dart';
 import 'package:plaza/core/repositories/admin_repository.dart';
 
@@ -289,5 +290,32 @@ class Phase21MockAdminRepository implements AdminRepository {
   @override
   Future<ApiResponse<List<AdminAuditLog>>> getAuditLogs({int limit = 50, int offset = 0}) async {
     return ApiResponse.success([]);
+  }
+
+  @override
+  Future<ApiResponse<List<IntegrationProviderInfo>>> getIntegrationProviders() async {
+    return ApiResponse.success([]);
+  }
+
+  @override
+  Future<ApiResponse<IntegrationHealthSummary>> getIntegrationHealth() async {
+    return ApiResponse.success(const IntegrationHealthSummary(
+      status: 'HEALTHY',
+      totalProviders: 9,
+      activeProviders: 2,
+      configuredProviders: 2,
+      unconfiguredProviders: 7,
+      recentSyncRuns: [],
+    ));
+  }
+
+  @override
+  Future<ApiResponse<List<IntegrationSyncRun>>> getIntegrationSyncRuns({String? provider, int limit = 20, int offset = 0}) async {
+    return ApiResponse.success([]);
+  }
+
+  @override
+  Future<ApiResponse<dynamic>> triggerIntegrationSync(String providerId, {String? vertical}) async {
+    return ApiResponse.success({'triggered': true, 'providerId': providerId});
   }
 }
