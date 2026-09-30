@@ -40,6 +40,7 @@ class ApiEndpoints {
   static const String bookings = '/bookings';
   static String bookingDetails(String id) => '/bookings/$id';
   static const String bookingQuote = '/bookings/quote';
+  static const String paymentOrders = '/payments/orders';
   static const String paymentVerify = '/payments/verify';
   static const String paymentFailed = '/payments/failed';
 

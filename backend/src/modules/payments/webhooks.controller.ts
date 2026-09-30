@@ -16,7 +16,12 @@ import { Repository } from 'typeorm';
 import { RazorpayAdapter } from './providers/razorpay.adapter';
 import { WebhookEventEntity } from '../../database/entities/webhook-event.entity';
 import { BookingEntity, BookingStatus, BookingType } from '../../database/entities/booking.entity';
-import { PaymentEntity, PaymentStatus } from '../../database/entities/payment.entity';
+import {
+  PaymentEntity,
+  PaymentStatus,
+  PaymentErrorCode,
+  assertValidPaymentStateTransition,
+} from '../../database/entities/payment.entity';
 import { User } from '../../database/entities/user.entity';
 import { EventEntity } from '../../database/entities/event.entity';
 import { ActivityEntity } from '../../database/entities/activity.entity';
@@ -138,17 +143,29 @@ export class WebhooksController {
           ],
         });
         if (payment) {
-          if (
-            payment.status === PaymentStatus.FAILED ||
-            payment.status === PaymentStatus.REFUNDED ||
-            payment.status === PaymentStatus.REFUND_PENDING
-          ) {
-            throw new BadRequestException(
-              `Invalid payment state transition: cannot transition from ${payment.status} to CAPTURED`,
+          if (payment.status === PaymentStatus.CAPTURED) {
+            if (
+              payment.providerPaymentId &&
+              paymentEntity?.id &&
+              payment.providerPaymentId !== paymentEntity.id
+            ) {
+              throw new BadRequestException(
+                `${PaymentErrorCode.PAYMENT_ID_MISMATCH}: Cannot overwrite providerPaymentId on already CAPTURED payment`,
+              );
+            }
+            this.logger.log(
+              `[Webhook] Payment for booking ${booking.id} already CAPTURED; skipping duplicate state transition`,
             );
+            return;
           }
+
+          if (payment.status === PaymentStatus.CREATED) {
+            assertValidPaymentStateTransition(PaymentStatus.CREATED, PaymentStatus.PENDING);
+            payment.status = PaymentStatus.PENDING;
+          }
+          assertValidPaymentStateTransition(payment.status, PaymentStatus.CAPTURED);
           payment.status = PaymentStatus.CAPTURED;
-          payment.providerPaymentId = paymentEntity?.id;
+          payment.providerPaymentId = paymentEntity?.id || payment.providerPaymentId;
           await this.paymentRepo.save(payment);
         }
       }
@@ -159,7 +176,8 @@ export class WebhooksController {
         );
       }
 
-      const isFirstConfirmation = booking.status === BookingStatus.PENDING || !booking.metadata?.paymentVerified;
+      const isFirstConfirmation =
+        booking.status === BookingStatus.PENDING || !booking.metadata?.paymentVerified;
       booking.status = BookingStatus.UPCOMING;
       booking.metadata = {
         ...booking.metadata,
@@ -198,11 +216,13 @@ export class WebhooksController {
 
       await this.bookingRepo.save(booking);
 
-      // Dispatch automated SMS confirmation
-      await this.notificationAdapter.sendSms({
-        to: '+919876543210',
-        message: `Your PLAZA booking #${booking.id} (${booking.title}) is confirmed! Show your QR code pass at venue.`,
-      });
+      // Dispatch automated SMS confirmation only on first confirmation
+      if (isFirstConfirmation) {
+        await this.notificationAdapter.sendSms({
+          to: '+919876543210',
+          message: `Your PLAZA booking #${booking.id} (${booking.title}) is confirmed! Show your QR code pass at venue.`,
+        });
+      }
 
       this.logger.log(`[Webhook] Booking ${booking.id} transitioned to UPCOMING/CONFIRMED via webhook`);
     }
@@ -219,15 +239,7 @@ export class WebhooksController {
         if (this.paymentRepo) {
           const payment = await this.paymentRepo.findOne({ where: { bookingId } });
           if (payment) {
-            if (
-              payment.status === PaymentStatus.CAPTURED ||
-              payment.status === PaymentStatus.REFUNDED ||
-              payment.status === PaymentStatus.REFUND_PENDING
-            ) {
-              throw new BadRequestException(
-                `Invalid payment state transition: cannot transition from ${payment.status} to FAILED`,
-              );
-            }
+            assertValidPaymentStateTransition(payment.status, PaymentStatus.FAILED);
             payment.status = PaymentStatus.FAILED;
             payment.failureReason = paymentEntity?.error_description || 'Payment authorization failed';
             await this.paymentRepo.save(payment);

@@ -9,10 +9,16 @@ abstract class BookingRepository {
     required String type,
     required Map<String, dynamic> payload,
   });
+  Future<PaymentOrderSession?> createPaymentOrder({
+    required String quoteId,
+    String? bookingId,
+    String? paymentMethod,
+  });
   Future<bool> verifyPayment({
     required String bookingId,
     required String orderId,
     required String paymentId,
     required String signature,
+    String? quoteId,
   });
 }

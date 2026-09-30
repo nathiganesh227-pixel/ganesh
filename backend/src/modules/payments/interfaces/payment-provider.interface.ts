@@ -9,6 +9,7 @@ export interface CreatePaymentOrderOptions {
 export interface PaymentOrderResult {
   orderId: string;
   amount: number;
+  amountInMinorUnits?: number;
   currency: string;
   provider: string;
   keyId?: string;
@@ -20,6 +21,25 @@ export interface VerifySignatureOptions {
   orderId: string;
   paymentId: string;
   signature: string;
+}
+
+export type ProviderPaymentStatus =
+  | 'captured'
+  | 'authorized'
+  | 'created'
+  | 'failed'
+  | 'refunded';
+
+export interface ProviderPaymentDetails {
+  paymentId: string;
+  orderId: string;
+  amount: number;
+  amountInMinorUnits: number;
+  currency: string;
+  status: ProviderPaymentStatus;
+  captured: boolean;
+  method?: string;
+  notes?: Record<string, any>;
 }
 
 export interface RefundOptions {
@@ -48,12 +68,24 @@ export interface IPaymentProvider {
   /**
    * Cryptographically verify an inbound webhook signature (e.g. HMAC-SHA256)
    */
-  verifyWebhookSignature(rawBody: string | Buffer, signature: string, secret: string): boolean;
+  verifyWebhookSignature(rawBody: string | Buffer, signature: string, secret?: string): boolean;
 
   /**
    * Verify checkout completion signature from client
    */
-  verifyPaymentSignature(options: VerifySignatureOptions, secret: string): boolean;
+  verifyPaymentSignature(options: VerifySignatureOptions, secret?: string): boolean;
+
+  /**
+   * Retrieve provider-side payment details (amount, currency, order_id, status)
+   */
+  fetchPaymentDetails?(
+    paymentId: string,
+    context?: {
+      orderId?: string;
+      expectedAmountMinorUnits?: number;
+      expectedCurrency?: string;
+    },
+  ): Promise<ProviderPaymentDetails>;
 
   /**
    * Process a refund with the payment provider

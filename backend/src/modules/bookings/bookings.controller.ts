@@ -16,11 +16,12 @@ export class BookingsController {
   @Post('quote')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Calculate server-authoritative pricing quote for any vertical' })
-  async calculateQuote(@Body() body: any) {
+  async calculateQuote(@Body() body: any, @Request() req?: any) {
     if (!body || !body.type) {
       throw new BadRequestException('Missing booking type for quote calculation');
     }
-    return this.service.calculateQuote(body.type, body);
+    const authenticatedUserId = req?.user?.sub || req?.user?.id;
+    return this.service.calculateQuote(body.type, body, authenticatedUserId);
   }
 
   @Get()

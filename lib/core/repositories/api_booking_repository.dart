@@ -136,13 +136,60 @@ class ApiBookingRepository implements BookingRepository {
   }
 
   @override
+  Future<PaymentOrderSession?> createPaymentOrder({
+    required String quoteId,
+    String? bookingId,
+    String? paymentMethod,
+  }) async {
+    try {
+      // Never send client-supplied amount, price, total, or currency.
+      // Only send server-issued quoteId, bookingId, and paymentMethod.
+      final response = await _client.post<PaymentOrderSession?>(
+        ApiEndpoints.paymentOrders,
+        body: {
+          'quoteId': quoteId,
+          if (bookingId != null && bookingId.isNotEmpty) 'bookingId': bookingId,
+          if (paymentMethod != null && paymentMethod.isNotEmpty)
+            'paymentMethod': paymentMethod,
+        },
+        fromJson: (json) => json != null
+            ? PaymentOrderSession.fromJson(json as Map<String, dynamic>)
+            : null,
+      );
+
+      if (response.success && response.data != null) {
+        return response.data;
+      }
+
+      if (EnvironmentConfig.current == AppEnvironment.prod &&
+          !EnvironmentConfig.useMockData) {
+        throw Exception(
+          response.message ?? 'Failed to create payment order from server',
+        );
+      }
+    } catch (_) {
+      if (EnvironmentConfig.current == AppEnvironment.prod &&
+          !EnvironmentConfig.useMockData) {
+        rethrow;
+      }
+    }
+    return _fallback.createPaymentOrder(
+      quoteId: quoteId,
+      bookingId: bookingId,
+      paymentMethod: paymentMethod,
+    );
+  }
+
+  @override
   Future<bool> verifyPayment({
     required String bookingId,
     required String orderId,
     required String paymentId,
     required String signature,
+    String? quoteId,
   }) async {
     try {
+      // Never send client-supplied amount or currency during payment verification.
       final response = await _client.post<Map<String, dynamic>>(
         ApiEndpoints.paymentVerify,
         body: {
@@ -150,6 +197,7 @@ class ApiBookingRepository implements BookingRepository {
           'razorpayOrderId': orderId,
           'razorpayPaymentId': paymentId,
           'razorpaySignature': signature,
+          if (quoteId != null && quoteId.isNotEmpty) 'quoteId': quoteId,
         },
         fromJson: (json) => json as Map<String, dynamic>,
       );
@@ -172,6 +220,7 @@ class ApiBookingRepository implements BookingRepository {
         orderId: orderId,
         paymentId: paymentId,
         signature: signature,
+        quoteId: quoteId,
       );
     }
   }

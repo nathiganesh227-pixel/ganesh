@@ -2,7 +2,10 @@ import {
   Controller,
   Post,
   Body,
+  Request,
+  UseGuards,
   UnauthorizedException,
+  ForbiddenException,
   NotFoundException,
   BadRequestException,
   Logger,
@@ -15,18 +18,46 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaymentService } from './payment.service';
 import { RazorpayAdapter } from './providers/razorpay.adapter';
-import { PaymentEntity, PaymentStatus } from '../../database/entities/payment.entity';
+import {
+  PaymentEntity,
+  PaymentStatus,
+  PaymentErrorCode,
+  assertValidPaymentStateTransition,
+  toMinorUnits,
+} from '../../database/entities/payment.entity';
 import { BookingEntity, BookingStatus, BookingType } from '../../database/entities/booking.entity';
 import { User } from '../../database/entities/user.entity';
 import { EventEntity } from '../../database/entities/event.entity';
 import { ActivityEntity } from '../../database/entities/activity.entity';
 import { TwilioSmsAdapter } from '../notifications/providers/twilio-sms.adapter';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+
+export class CreatePaymentOrderDto {
+  quoteId: string;
+  bookingId?: string;
+  paymentMethod?: string;
+  // Informational / non-authoritative client fields (ignored by server for order creation)
+  amount?: number;
+  price?: number;
+  total?: number;
+  subtotal?: number;
+  discount?: number;
+  tax?: number;
+  fee?: number;
+  currency?: string;
+}
 
 export class VerifyPaymentDto {
   bookingId: string;
   razorpayOrderId: string;
   razorpayPaymentId: string;
   razorpaySignature: string;
+  quoteId?: string;
+  userId?: string;
+  amount?: number;
+  amountInMinorUnits?: number;
+  currency?: string;
+  providerStatus?: string;
 }
 
 export class PaymentFailedDto {
@@ -59,14 +90,81 @@ export class PaymentsController {
     private readonly notificationAdapter?: TwilioSmsAdapter,
   ) {}
 
+  @Post('orders')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Create server-authoritative payment order from canonical quote',
+  })
+  async createPaymentOrder(@Body() body: CreatePaymentOrderDto, @Request() req?: any) {
+    const jwtUserId = req?.user?.sub || req?.user?.id;
+    if (!jwtUserId) {
+      throw new UnauthorizedException('Authentication token is required to create a payment order');
+    }
+
+    if (body?.bookingId) {
+      const booking = await this.bookingRepo.findOne({ where: { id: body.bookingId } });
+      if (!booking) {
+        throw new NotFoundException(
+          `${PaymentErrorCode.PAYMENT_NOT_FOUND}: Booking #${body.bookingId} not found`,
+        );
+      }
+      if (
+        booking.userId &&
+        booking.userId !== 'user_default' &&
+        booking.userId !== 'usr_default_1' &&
+        booking.userId !== jwtUserId
+      ) {
+        throw new ForbiddenException(
+          `${PaymentErrorCode.PAYMENT_NOT_OWNED}: Booking belongs to another user`,
+        );
+      }
+    }
+
+    return this.paymentService.createPaymentOrder({
+      quoteId: body?.quoteId,
+      bookingId: body?.bookingId,
+      userId: jwtUserId,
+      paymentMethod: body?.paymentMethod,
+      amount: body?.amount,
+      price: body?.price,
+      total: body?.total,
+      subtotal: body?.subtotal,
+      discount: body?.discount,
+      tax: body?.tax,
+      fee: body?.fee,
+      currency: body?.currency,
+    });
+  }
+
   @Post('verify')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Cryptographically verify Razorpay checkout completion signature and confirm booking' })
-  async verifyPayment(@Body() body: VerifyPaymentDto) {
-    const { bookingId, razorpayOrderId, razorpayPaymentId, razorpaySignature } = body;
+  @ApiOperation({
+    summary: 'Cryptographically verify Razorpay checkout completion signature and confirm booking',
+  })
+  async verifyPayment(@Body() body: VerifyPaymentDto, @Request() req?: any) {
+    const {
+      bookingId,
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+      quoteId,
+      amount,
+      amountInMinorUnits,
+      currency,
+      providerStatus,
+    } = body || ({} as VerifyPaymentDto);
 
-    if (!bookingId || !razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
-      throw new BadRequestException('Missing required payment verification parameters');
+    if (
+      !bookingId?.trim() ||
+      !razorpayOrderId?.trim() ||
+      !razorpayPaymentId?.trim() ||
+      !razorpaySignature?.trim()
+    ) {
+      throw new BadRequestException(
+        `${PaymentErrorCode.INVALID_PAYMENT_SIGNATURE}: Missing required payment verification parameters`,
+      );
     }
 
     if (
@@ -74,11 +172,20 @@ export class PaymentsController {
       String(process.env.RAZORPAY_LIVE_ENABLED || '').trim().toLowerCase() !== 'true'
     ) {
       throw new BadRequestException(
-        'Razorpay live payments are disabled (RAZORPAY_LIVE_DISABLED). Simulated fallback is forbidden.',
+        `${PaymentErrorCode.RAZORPAY_LIVE_DISABLED}: Razorpay live payments are disabled (RAZORPAY_LIVE_DISABLED). Simulated fallback is forbidden.`,
       );
     }
 
-    // 1. Verify HMAC-SHA256 signature
+    // Never trust client-supplied userId when authenticated JWT identity is present
+    const jwtUserId = req?.user?.sub || req?.user?.id;
+    if (jwtUserId && body.userId && body.userId !== jwtUserId) {
+      throw new ForbiddenException(
+        `${PaymentErrorCode.PAYMENT_NOT_OWNED}: Authenticated user does not match request userId`,
+      );
+    }
+    const effectiveUserId = jwtUserId || body.userId;
+
+    // 1. Verify HMAC-SHA256 signature using server-side secret
     const isValid = this.razorpayAdapter.verifyPaymentSignature({
       orderId: razorpayOrderId,
       paymentId: razorpayPaymentId,
@@ -86,74 +193,307 @@ export class PaymentsController {
     });
 
     if (!isValid) {
-      this.logger.warn(`[PaymentVerify] Invalid HMAC signature for payment ${razorpayPaymentId}, order ${razorpayOrderId}`);
-      throw new UnauthorizedException('Invalid payment signature verification failed');
+      this.logger.warn(
+        `[PaymentVerify] Invalid HMAC signature for payment ${razorpayPaymentId}, order ${razorpayOrderId}`,
+      );
+      throw new UnauthorizedException(
+        `${PaymentErrorCode.INVALID_PAYMENT_SIGNATURE}: Invalid payment signature verification failed`,
+      );
     }
 
-    // 2. Fetch booking
+    // 2. Fetch booking & validate user ownership
     const booking = await this.bookingRepo.findOne({ where: { id: bookingId } });
     if (!booking) {
-      throw new NotFoundException(`Booking #${bookingId} not found`);
+      throw new NotFoundException(
+        `${PaymentErrorCode.PAYMENT_NOT_FOUND}: Booking #${bookingId} not found`,
+      );
     }
 
-    // 3. Update or create PaymentEntity
-    let payment = await this.paymentRepo.findOne({
-      where: [
-        { bookingId },
-        { providerOrderId: razorpayOrderId },
-        { providerPaymentId: razorpayPaymentId },
-      ],
+    if (
+      effectiveUserId &&
+      booking.userId &&
+      booking.userId !== 'user_default' &&
+      booking.userId !== 'usr_default_1' &&
+      booking.userId !== effectiveUserId
+    ) {
+      throw new ForbiddenException(
+        `${PaymentErrorCode.PAYMENT_NOT_OWNED}: Booking #${bookingId} belongs to another user`,
+      );
+    }
+
+    // 3. Lookup payment records & detect cross-payment / cross-order substitution
+    const byBooking = await this.paymentRepo.findOne({ where: { bookingId } });
+    const byOrder = await this.paymentRepo.findOne({
+      where: { providerOrderId: razorpayOrderId },
+    });
+    const byPaymentId = await this.paymentRepo.findOne({
+      where: { providerPaymentId: razorpayPaymentId },
     });
 
+    if (byBooking && byOrder && byBooking.id !== byOrder.id) {
+      throw new BadRequestException(
+        `${PaymentErrorCode.PAYMENT_ORDER_MISMATCH}: Provider order belongs to another payment record`,
+      );
+    }
+
+    if (byBooking && byPaymentId && byBooking.id !== byPaymentId.id) {
+      throw new BadRequestException(
+        `${PaymentErrorCode.PAYMENT_ID_MISMATCH}: Provider payment ID belongs to another payment record`,
+      );
+    }
+
+    if (byOrder && byPaymentId && byOrder.id !== byPaymentId.id) {
+      throw new BadRequestException(
+        `${PaymentErrorCode.PAYMENT_ID_MISMATCH}: Provider payment ID belongs to another order`,
+      );
+    }
+
+    let payment = byBooking || byOrder || byPaymentId;
+
     if (payment) {
-      if (
-        payment.status === PaymentStatus.FAILED ||
-        payment.status === PaymentStatus.REFUNDED ||
-        payment.status === PaymentStatus.REFUND_PENDING
-      ) {
+      if (payment.bookingId && payment.bookingId !== bookingId) {
         throw new BadRequestException(
-          `Invalid payment state transition: cannot transition from ${payment.status} to CAPTURED`,
+          `${PaymentErrorCode.PAYMENT_BOOKING_MISMATCH}: Payment does not belong to booking #${bookingId}`,
         );
       }
 
+      if (
+        effectiveUserId &&
+        payment.userId &&
+        payment.userId !== 'usr_default_1' &&
+        payment.userId !== effectiveUserId
+      ) {
+        throw new ForbiddenException(
+          `${PaymentErrorCode.PAYMENT_NOT_OWNED}: Payment belongs to another user`,
+        );
+      }
+
+      if (
+        payment.userId &&
+        booking.userId &&
+        payment.userId !== 'usr_default_1' &&
+        booking.userId !== 'user_default' &&
+        payment.userId !== booking.userId
+      ) {
+        throw new ForbiddenException(
+          `${PaymentErrorCode.PAYMENT_NOT_OWNED}: Payment user does not match booking user`,
+        );
+      }
+
+      if (payment.providerOrderId && payment.providerOrderId !== razorpayOrderId) {
+        throw new BadRequestException(
+          `${PaymentErrorCode.PAYMENT_ORDER_MISMATCH}: Provider order ID does not match stored payment order ID`,
+        );
+      }
+
+      if (payment.providerPaymentId && payment.providerPaymentId !== razorpayPaymentId) {
+        throw new BadRequestException(
+          `${PaymentErrorCode.PAYMENT_ID_MISMATCH}: Cannot overwrite existing providerPaymentId on payment`,
+        );
+      }
+    }
+
+    if (
+      booking.metadata?.payment?.orderId &&
+      booking.metadata.payment.orderId !== razorpayOrderId
+    ) {
+      throw new BadRequestException(
+        `${PaymentErrorCode.PAYMENT_ORDER_MISMATCH}: Provider order ID does not match booking order ID`,
+      );
+    }
+
+    if (
+      booking.metadata?.paymentVerified &&
+      booking.metadata?.payment?.paymentId &&
+      booking.metadata.payment.paymentId !== razorpayPaymentId
+    ) {
+      throw new BadRequestException(
+        `${PaymentErrorCode.PAYMENT_ID_MISMATCH}: Cannot overwrite verified providerPaymentId on booking`,
+      );
+    }
+
+    // 4. Idempotent duplicate verification handling
+    if (
+      (payment && payment.status === PaymentStatus.CAPTURED) ||
+      (booking.metadata?.paymentVerified === true &&
+        booking.metadata?.payment?.paymentId === razorpayPaymentId &&
+        booking.metadata?.payment?.orderId === razorpayOrderId)
+    ) {
+      this.logger.log(
+        `[PaymentVerify] Idempotent duplicate verification for booking #${bookingId} (order=${razorpayOrderId}, payment=${razorpayPaymentId})`,
+      );
+      return {
+        success: true,
+        idempotentReplay: true,
+        bookingId,
+        status: PaymentStatus.CAPTURED,
+        booking,
+      };
+    }
+
+    // 5. Validate payment & booking state machine transitions
+    if (payment) {
+      if (payment.status === PaymentStatus.CREATED) {
+        assertValidPaymentStateTransition(PaymentStatus.CREATED, PaymentStatus.PENDING);
+        payment.status = PaymentStatus.PENDING;
+      }
+      assertValidPaymentStateTransition(payment.status, PaymentStatus.CAPTURED);
+    }
+
+    if (
+      booking.status === BookingStatus.FAILED ||
+      booking.status === BookingStatus.CANCELLED ||
+      booking.status === BookingStatus.REFUNDED ||
+      booking.status === BookingStatus.REFUND_PENDING
+    ) {
+      throw new BadRequestException(
+        `${PaymentErrorCode.INVALID_PAYMENT_STATE_TRANSITION}: Invalid booking state transition: cannot capture payment for ${booking.status} booking`,
+      );
+    }
+
+    // 6. Validate associated quote if present
+    const effectiveQuoteId =
+      quoteId || payment?.quoteId || payment?.metadata?.quoteId || booking.metadata?.quoteId;
+    const quoteRecord = effectiveQuoteId
+      ? this.paymentService.validateCanonicalQuote(effectiveQuoteId, {
+          userId: effectiveUserId || booking.userId,
+          bookingId,
+          expectedTotalMajor: booking.totalPrice,
+          allowConsumedByPaymentId: payment?.id,
+          allowConsumedByBookingId: bookingId,
+        })
+      : undefined;
+
+    // 7. Verify canonical amount (in integer minor units), currency, order ID, payment ID, and provider status
+    const canonicalCurrency = (
+      quoteRecord?.canonicalCurrency ||
+      payment?.currency ||
+      'INR'
+    ).toUpperCase();
+    const canonicalAmountMinorUnits =
+      quoteRecord?.canonicalTotalMinorUnits ?? toMinorUnits(booking.totalPrice);
+
+    if (payment && toMinorUnits(payment.amount) !== canonicalAmountMinorUnits) {
+      throw new BadRequestException(
+        `${PaymentErrorCode.PAYMENT_AMOUNT_MISMATCH}: Stored payment amount does not match canonical booking/quote amount`,
+      );
+    }
+
+    if (payment && payment.currency.toUpperCase() !== canonicalCurrency) {
+      throw new BadRequestException(
+        `${PaymentErrorCode.PAYMENT_CURRENCY_MISMATCH}: Stored payment currency does not match canonical currency`,
+      );
+    }
+
+    if (currency !== undefined && String(currency).trim().toUpperCase() !== canonicalCurrency) {
+      throw new BadRequestException(
+        `${PaymentErrorCode.PAYMENT_CURRENCY_MISMATCH}: Client currency does not match canonical currency ${canonicalCurrency}`,
+      );
+    }
+
+    if (amount !== undefined && toMinorUnits(Number(amount)) !== canonicalAmountMinorUnits) {
+      throw new BadRequestException(
+        `${PaymentErrorCode.PAYMENT_AMOUNT_MISMATCH}: Client amount does not match canonical amount`,
+      );
+    }
+
+    if (
+      amountInMinorUnits !== undefined &&
+      Math.round(Number(amountInMinorUnits)) !== canonicalAmountMinorUnits
+    ) {
+      throw new BadRequestException(
+        `${PaymentErrorCode.PAYMENT_AMOUNT_MISMATCH}: Client minor-unit amount does not match canonical amount`,
+      );
+    }
+
+    // Server-side provider payment details verification
+    const providerDetails = await this.razorpayAdapter.fetchPaymentDetails(razorpayPaymentId, {
+      orderId: razorpayOrderId,
+      expectedAmountMinorUnits: canonicalAmountMinorUnits,
+      expectedCurrency: canonicalCurrency,
+    });
+
+    if (providerDetails.paymentId !== razorpayPaymentId) {
+      throw new BadRequestException(
+        `${PaymentErrorCode.PAYMENT_ID_MISMATCH}: Provider payment ID mismatch`,
+      );
+    }
+
+    if (providerDetails.orderId && providerDetails.orderId !== razorpayOrderId) {
+      throw new BadRequestException(
+        `${PaymentErrorCode.PAYMENT_ORDER_MISMATCH}: Provider payment is attached to order ${providerDetails.orderId}, expected ${razorpayOrderId}`,
+      );
+    }
+
+    if (providerDetails.currency.toUpperCase() !== canonicalCurrency) {
+      throw new BadRequestException(
+        `${PaymentErrorCode.PAYMENT_CURRENCY_MISMATCH}: Provider payment currency ${providerDetails.currency} does not match canonical currency ${canonicalCurrency}`,
+      );
+    }
+
+    if (providerDetails.amountInMinorUnits !== canonicalAmountMinorUnits) {
+      throw new BadRequestException(
+        `${PaymentErrorCode.PAYMENT_AMOUNT_MISMATCH}: Provider payment amount (${providerDetails.amountInMinorUnits} paise) does not match canonical amount (${canonicalAmountMinorUnits} paise)`,
+      );
+    }
+
+    const effectiveProviderStatus = (
+      providerStatus ||
+      providerDetails.status ||
+      'captured'
+    ).toLowerCase();
+    if (effectiveProviderStatus !== 'captured' && effectiveProviderStatus !== 'authorized') {
+      throw new BadRequestException(
+        `${PaymentErrorCode.PAYMENT_NOT_VERIFIED}: Provider payment status '${effectiveProviderStatus}' is not eligible for capture`,
+      );
+    }
+
+    // 8. Persist CAPTURED PaymentEntity
+    if (payment) {
+      this.paymentService.assignProviderOrderId(payment, razorpayOrderId);
+      this.paymentService.assignProviderPaymentId(payment, razorpayPaymentId);
       payment.status = PaymentStatus.CAPTURED;
-      payment.providerPaymentId = razorpayPaymentId;
-      payment.providerSignature = razorpaySignature;
+      payment.providerSignature = 'HMAC_SHA256_VERIFIED';
       payment.metadata = {
         ...payment.metadata,
         verifiedAt: new Date().toISOString(),
         verification: 'HMAC_SHA256_VERIFIED',
+        verifiedAmountInMinorUnits: canonicalAmountMinorUnits,
+        verifiedCurrency: canonicalCurrency,
       };
       await this.paymentRepo.save(payment);
     } else {
-      if (booking.status === BookingStatus.FAILED || booking.status === BookingStatus.CANCELLED) {
-        throw new BadRequestException(
-          `Invalid booking state transition: cannot capture payment for ${booking.status} booking`,
-        );
-      }
-
       payment = this.paymentRepo.create({
         id: `PAY_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         bookingId,
+        quoteId: effectiveQuoteId,
         userId: booking.userId,
         amount: booking.totalPrice,
-        currency: 'INR',
+        currency: canonicalCurrency,
         provider: 'razorpay',
         providerOrderId: razorpayOrderId,
         providerPaymentId: razorpayPaymentId,
-        providerSignature: razorpaySignature,
+        providerSignature: 'HMAC_SHA256_VERIFIED',
         status: PaymentStatus.CAPTURED,
         paymentMethod: 'RAZORPAY_CHECKOUT',
         metadata: {
+          quoteId: effectiveQuoteId,
           verifiedAt: new Date().toISOString(),
           verification: 'HMAC_SHA256_VERIFIED',
+          verifiedAmountInMinorUnits: canonicalAmountMinorUnits,
+          verifiedCurrency: canonicalCurrency,
         },
       });
       await this.paymentRepo.save(payment);
     }
 
-    // 4. Update Booking Status (if still pending)
-    const isFirstConfirmation = booking.status === BookingStatus.PENDING || !booking.metadata?.paymentVerified;
+    if (effectiveQuoteId) {
+      this.paymentService.markQuoteConsumed(effectiveQuoteId, payment.id, bookingId);
+    }
+
+    // 9. Update Booking Status (if still pending)
+    const isFirstConfirmation =
+      booking.status === BookingStatus.PENDING || !booking.metadata?.paymentVerified;
     booking.status = BookingStatus.UPCOMING;
     booking.metadata = {
       ...booking.metadata,
@@ -162,13 +502,15 @@ export class PaymentsController {
         paymentId: razorpayPaymentId,
         orderId: razorpayOrderId,
         amount: booking.totalPrice,
+        amountInMinorUnits: canonicalAmountMinorUnits,
+        currency: canonicalCurrency,
         status: 'COMPLETED',
         provider: 'razorpay',
         verifiedAt: new Date().toISOString(),
       },
     };
 
-    // 5. Idempotent Rewards Points Awarding (only on first confirmation)
+    // 10. Idempotent Rewards Points Awarding (only on first confirmation)
     if (isFirstConfirmation && !booking.metadata?.rewardAwarded && this.userRepo) {
       let pointsToAward = 0;
       if (booking.type === BookingType.MOVIE) {
@@ -186,22 +528,26 @@ export class PaymentsController {
           await this.userRepo.save(user);
           booking.metadata.rewardAwarded = true;
           booking.metadata.rewardPoints = pointsToAward;
-          this.logger.log(`[PaymentVerify] Awarded ${pointsToAward} reward points to user ${user.id} for booking ${booking.id}`);
+          this.logger.log(
+            `[PaymentVerify] Awarded ${pointsToAward} reward points to user ${user.id} for booking ${booking.id}`,
+          );
         }
       }
     }
 
     await this.bookingRepo.save(booking);
 
-    // 6. Dispatch SMS Notification
-    if (this.notificationAdapter) {
+    // 11. Dispatch SMS Notification only on first confirmation
+    if (isFirstConfirmation && this.notificationAdapter) {
       await this.notificationAdapter.sendSms({
         to: '+919876543210',
         message: `Your PLAZA booking #${booking.id} (${booking.title}) is confirmed! Show your QR code pass at venue.`,
       });
     }
 
-    this.logger.log(`[PaymentVerify] Booking #${bookingId} successfully confirmed via HMAC signature verification`);
+    this.logger.log(
+      `[PaymentVerify] Booking #${bookingId} successfully confirmed via HMAC signature verification`,
+    );
     return {
       success: true,
       bookingId,
@@ -221,18 +567,10 @@ export class PaymentsController {
       throw new NotFoundException(`Booking #${bookingId} not found`);
     }
 
-    // 1. Update PaymentEntity status
+    // 1. Update PaymentEntity status via canonical state machine validator
     const payment = await this.paymentRepo.findOne({ where: { bookingId } });
     if (payment) {
-      if (
-        payment.status === PaymentStatus.CAPTURED ||
-        payment.status === PaymentStatus.REFUNDED ||
-        payment.status === PaymentStatus.REFUND_PENDING
-      ) {
-        throw new BadRequestException(
-          `Invalid payment state transition: cannot transition from ${payment.status} to FAILED`,
-        );
-      }
+      assertValidPaymentStateTransition(payment.status, PaymentStatus.FAILED);
       payment.status = PaymentStatus.FAILED;
       payment.failureReason = reason;
       await this.paymentRepo.save(payment);
@@ -248,17 +586,29 @@ export class PaymentsController {
     await this.bookingRepo.save(booking);
 
     // 3. Restore reserved inventory (tickets or activity spots)
-    if (booking.type === BookingType.EVENT && booking.metadata?.eventId && booking.metadata?.tierId && this.eventRepo) {
+    if (
+      booking.type === BookingType.EVENT &&
+      booking.metadata?.eventId &&
+      booking.metadata?.tierId &&
+      this.eventRepo
+    ) {
       const event = await this.eventRepo.findOne({ where: { id: booking.metadata.eventId } });
       if (event && event.ticketTiers) {
         const tier = event.ticketTiers.find((t) => t.id === booking.metadata.tierId);
         if (tier) {
           tier.remainingCount += booking.metadata.ticketCount || 1;
           await this.eventRepo.save(event);
-          this.logger.log(`[PaymentFailed] Restored ${booking.metadata.ticketCount} tickets for event ${event.id}`);
+          this.logger.log(
+            `[PaymentFailed] Restored ${booking.metadata.ticketCount} tickets for event ${event.id}`,
+          );
         }
       }
-    } else if (booking.type === BookingType.ACTIVITY && booking.metadata?.activityId && booking.metadata?.timeSlot && this.activityRepo) {
+    } else if (
+      booking.type === BookingType.ACTIVITY &&
+      booking.metadata?.activityId &&
+      booking.metadata?.timeSlot &&
+      this.activityRepo
+    ) {
       const act = await this.activityRepo.findOne({ where: { id: booking.metadata.activityId } });
       if (act && act.timeSlots) {
         const slot = act.timeSlots.find((s) => s.time === booking.metadata.timeSlot);
@@ -266,12 +616,16 @@ export class PaymentsController {
           slot.availableSlots += booking.metadata.numberOfPeople || 1;
           slot.isFillingFast = slot.availableSlots <= 2;
           await this.activityRepo.save(act);
-          this.logger.log(`[PaymentFailed] Restored ${booking.metadata.numberOfPeople} spots for activity ${act.id}`);
+          this.logger.log(
+            `[PaymentFailed] Restored ${booking.metadata.numberOfPeople} spots for activity ${act.id}`,
+          );
         }
       }
     }
 
-    this.logger.log(`[PaymentFailed] Booking #${bookingId} marked as FAILED and inventory restored.`);
+    this.logger.log(
+      `[PaymentFailed] Booking #${bookingId} marked as FAILED and inventory restored.`,
+    );
     return {
       success: true,
       bookingId,

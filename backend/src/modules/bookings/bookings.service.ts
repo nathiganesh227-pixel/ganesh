@@ -20,6 +20,8 @@ import { PaymentService } from './payment.service';
 
 export interface CanonicalQuote {
   quoteId: string;
+  userId?: string;
+  bookingId?: string;
   type: string;
   vertical: string;
   items: any[];
@@ -33,6 +35,7 @@ export interface CanonicalQuote {
   rewardsEarned: number;
   total: number;
   grandTotal: number;
+  amountInMinorUnits?: number;
   currency: string;
   expiresAt: string;
   breakdown: Record<string, any>;
@@ -40,6 +43,7 @@ export interface CanonicalQuote {
 
 export interface CachedQuote {
   quote: CanonicalQuote;
+  userId?: string;
   createdAt: number;
   expiresAt: number;
 }
@@ -205,23 +209,80 @@ export class BookingsService {
   }
 
   /**
-   * Validate quote expiration and integrity
+   * Validate quote expiration, ownership, and financial integrity
    */
-  validateQuote(quoteId?: string, currentTotal?: number, clientTotal?: number): void {
+  validateQuote(
+    quoteId?: string,
+    currentTotal?: number,
+    clientTotal?: number,
+    userId?: string,
+    clientCurrency?: string,
+  ): void {
     if (!quoteId) return;
+
     const cached = this.quoteStore.get(quoteId);
     if (!cached) {
-      throw new BadRequestException('Pricing quote has expired or is invalid. Please recalculate your quote.');
+      if (typeof this.paymentService?.validateCanonicalQuote === 'function') {
+        this.paymentService.validateCanonicalQuote(quoteId, {
+          userId,
+          expectedTotalMajor: currentTotal,
+          clientTotalMajor: clientTotal,
+          clientCurrency,
+        });
+        return;
+      }
+      throw new BadRequestException(
+        'QUOTE_NOT_FOUND: Pricing quote has expired or is invalid. Please recalculate your quote.',
+      );
+    }
+
+    if (
+      userId &&
+      cached.userId &&
+      cached.userId !== 'usr_default_1' &&
+      cached.userId !== 'user_default' &&
+      cached.userId !== userId
+    ) {
+      throw new ForbiddenException('QUOTE_NOT_OWNED: Pricing quote belongs to another user.');
     }
 
     if (Date.now() > cached.expiresAt) {
-      throw new BadRequestException('Pricing quote has expired. Please recalculate your quote.');
+      throw new BadRequestException(
+        'QUOTE_EXPIRED: Pricing quote has expired. Please recalculate your quote.',
+      );
     }
-    if (currentTotal !== undefined && Math.abs(cached.quote.grandTotal - currentTotal) > 0.01) {
-      throw new BadRequestException('Calculated price differs from quote. Pricing may have updated.');
+
+    if (typeof this.paymentService?.validateCanonicalQuote === 'function') {
+      this.paymentService.validateCanonicalQuote(quoteId, {
+        userId,
+        expectedTotalMajor: currentTotal,
+        clientTotalMajor: clientTotal,
+        clientCurrency,
+      });
+    } else {
+      if (currentTotal !== undefined && Math.abs(cached.quote.grandTotal - currentTotal) > 0.01) {
+        throw new BadRequestException(
+          'PAYMENT_AMOUNT_MISMATCH: Calculated price differs from quote. Pricing may have updated.',
+        );
+      }
+      if (clientTotal !== undefined && Math.abs(cached.quote.grandTotal - clientTotal) > 0.01) {
+        throw new BadRequestException(
+          'PAYMENT_AMOUNT_MISMATCH: Submitted total does not match quote total.',
+        );
+      }
+      if (
+        clientCurrency !== undefined &&
+        String(clientCurrency).trim().toUpperCase() !== (cached.quote.currency || 'INR').toUpperCase()
+      ) {
+        throw new BadRequestException(
+          'PAYMENT_CURRENCY_MISMATCH: Submitted currency does not match quote currency.',
+        );
+      }
     }
-    if (clientTotal !== undefined && Math.abs(cached.quote.grandTotal - clientTotal) > 0.01) {
-      throw new BadRequestException('Submitted total does not match quote total.');
+
+    if (userId && !cached.userId) {
+      cached.userId = userId;
+      cached.quote.userId = userId;
     }
   }
 
@@ -461,7 +522,13 @@ export class BookingsService {
       const totalPrice = subtotal + convenienceFee + taxes;
 
       // Validate quote if provided
-      this.validateQuote(payload.quoteId, totalPrice, (payload as any).totalAmount);
+      this.validateQuote(
+        payload.quoteId,
+        totalPrice,
+        (payload as any).totalAmount,
+        callerId,
+        (payload as any).currency,
+      );
 
       const bookingId = `PLZ-MOV-${Date.now().toString().slice(-5)}${Math.floor(Math.random() * 900 + 100)}`;
       const payment = await this.paymentService.processPayment(
@@ -469,6 +536,7 @@ export class BookingsService {
         totalPrice,
         (payload as any).paymentMethod || 'UPI_FAST',
         callerId,
+        payload.quoteId,
       );
 
       const booking = bookingRepo.create({
@@ -495,8 +563,8 @@ export class BookingsService {
         },
       });
 
-      await bookingRepo.save(booking);
       await this.awardPoints(manager, callerId, Math.round(totalPrice * 0.1), booking);
+      await bookingRepo.save(booking);
 
       // Consume/release temporary locks for these seats permanently
       for (const seat of payload.seatIds) {
@@ -567,7 +635,13 @@ export class BookingsService {
       const totalPrice = courtPrice + addOnsTotal + convenienceFee;
 
       // Validate quote if provided
-      this.validateQuote(payload.quoteId, totalPrice);
+      this.validateQuote(
+        payload.quoteId,
+        totalPrice,
+        (payload as any).totalAmount,
+        callerId,
+        (payload as any).currency,
+      );
 
       const bookingId = `PLZ-SPT-${Date.now().toString().slice(-5)}${Math.floor(Math.random() * 900 + 100)}`;
       const isPayAtVenue = payload.paymentMethod === 'PAY_AT_VENUE';
@@ -587,6 +661,7 @@ export class BookingsService {
             totalPrice,
             payload.paymentMethod || 'UPI_FAST',
             callerId,
+            payload.quoteId,
           );
 
       const booking = bookingRepo.create({
@@ -616,8 +691,8 @@ export class BookingsService {
         },
       });
 
-      await bookingRepo.save(booking);
       await this.awardPoints(manager, callerId, Math.round(totalPrice * 0.1), booking);
+      await bookingRepo.save(booking);
       return booking;
     });
   }
@@ -664,7 +739,13 @@ export class BookingsService {
         );
       }
 
-      this.validateQuote(payload.quoteId, 0);
+      this.validateQuote(
+        payload.quoteId,
+        0,
+        (payload as any).totalAmount,
+        callerId,
+        (payload as any).currency,
+      );
 
       const bookingId = `PLZ-DIN-${Date.now().toString().slice(-5)}${Math.floor(Math.random() * 900 + 100)}`;
       const payment = await this.paymentService.processPayment(
@@ -672,6 +753,7 @@ export class BookingsService {
         0.0,
         'COMPLIMENTARY',
         callerId,
+        payload.quoteId,
       );
 
       const booking = bookingRepo.create({
@@ -700,8 +782,8 @@ export class BookingsService {
         },
       });
 
-      await bookingRepo.save(booking);
       await this.awardPoints(manager, callerId, 100, booking);
+      await bookingRepo.save(booking);
       return booking;
     });
   }
@@ -784,7 +866,13 @@ export class BookingsService {
       const taxesAndFees = Math.round((roomTotal + addOnsTotal) * 0.12);
       const grandTotal = roomTotal + addOnsTotal + taxesAndFees;
 
-      this.validateQuote(payload.quoteId, grandTotal);
+      this.validateQuote(
+        payload.quoteId,
+        grandTotal,
+        (payload as any).totalAmount,
+        callerId,
+        (payload as any).currency,
+      );
 
       const bookingRepo = manager.getRepository(BookingEntity);
       const bookingId = `PLZ-STY-${Date.now().toString().slice(-5)}${Math.floor(Math.random() * 900 + 100)}`;
@@ -793,6 +881,7 @@ export class BookingsService {
         grandTotal,
         (payload as any).paymentMethod || 'CARD_FAST',
         callerId,
+        payload.quoteId,
       );
 
       const booking = bookingRepo.create({
@@ -819,8 +908,8 @@ export class BookingsService {
         },
       });
 
-      await bookingRepo.save(booking);
       await this.awardPoints(manager, callerId, Math.round(grandTotal * 0.05), booking);
+      await bookingRepo.save(booking);
       return booking;
     });
   }
@@ -897,7 +986,13 @@ export class BookingsService {
       const gst = Math.round(itemsTotal * 0.05);
       const grandTotal = itemsTotal + platformFee + gst;
 
-      this.validateQuote(payload.quoteId, grandTotal);
+      this.validateQuote(
+        payload.quoteId,
+        grandTotal,
+        (payload as any).totalAmount,
+        callerId,
+        (payload as any).currency,
+      );
 
       const bookingRepo = manager.getRepository(BookingEntity);
       const bookingId = `ORD-PLZ-${Date.now().toString().slice(-5)}${Math.floor(Math.random() * 900 + 100)}`;
@@ -906,6 +1001,7 @@ export class BookingsService {
         grandTotal,
         (payload as any).paymentMethod || 'UPI_FAST',
         callerId,
+        payload.quoteId,
       );
 
       const booking = bookingRepo.create({
@@ -929,8 +1025,8 @@ export class BookingsService {
         },
       });
 
-      await bookingRepo.save(booking);
       await this.awardPoints(manager, callerId, Math.round(grandTotal * 0.05), booking);
+      await bookingRepo.save(booking);
       return booking;
     });
   }
@@ -965,7 +1061,13 @@ export class BookingsService {
       const convenienceFee = Math.round(subtotal * 0.05);
       const grandTotal = subtotal + convenienceFee;
 
-      this.validateQuote(payload.quoteId, grandTotal);
+      this.validateQuote(
+        payload.quoteId,
+        grandTotal,
+        (payload as any).totalAmount,
+        callerId,
+        (payload as any).currency,
+      );
 
       const bookingRepo = manager.getRepository(BookingEntity);
       const bookingId = `PLZ-EVT-${Date.now().toString().slice(-5)}${Math.floor(Math.random() * 900 + 100)}`;
@@ -974,6 +1076,7 @@ export class BookingsService {
         grandTotal,
         (payload as any).paymentMethod || 'UPI_FAST',
         callerId,
+        payload.quoteId,
       );
 
       const booking = bookingRepo.create({
@@ -999,8 +1102,8 @@ export class BookingsService {
         },
       });
 
+      await this.awardPoints(manager, callerId, Math.round(grandTotal * 0.05), booking);
       await bookingRepo.save(booking);
-      await this.awardPoints(manager, callerId, Math.round(grandTotal * 0.05));
       return booking;
     });
   }
@@ -1055,7 +1158,13 @@ export class BookingsService {
       const taxes = Math.round(subtotal * 0.18);
       const grandTotal = subtotal + taxes;
 
-      this.validateQuote(payload.quoteId, grandTotal);
+      this.validateQuote(
+        payload.quoteId,
+        grandTotal,
+        (payload as any).totalAmount,
+        callerId,
+        (payload as any).currency,
+      );
 
       const bookingRepo = manager.getRepository(BookingEntity);
       const bookingId = `PLZ-ACT-${Date.now().toString().slice(-5)}${Math.floor(Math.random() * 900 + 100)}`;
@@ -1064,6 +1173,7 @@ export class BookingsService {
         grandTotal,
         (payload as any).paymentMethod || 'UPI_FAST',
         callerId,
+        payload.quoteId,
       );
 
       const booking = bookingRepo.create({
@@ -1090,8 +1200,8 @@ export class BookingsService {
         },
       });
 
-      await bookingRepo.save(booking);
       await this.awardPoints(manager, callerId, Math.round(grandTotal * 0.05), booking);
+      await bookingRepo.save(booking);
       return booking;
     });
   }
@@ -1099,7 +1209,11 @@ export class BookingsService {
   /**
    * Server-authoritative quote calculation for all 7 verticals
    */
-  async calculateQuote(type: string, payload: any): Promise<CanonicalQuote> {
+  async calculateQuote(
+    type: string,
+    payload: any,
+    authenticatedUserId?: string,
+  ): Promise<CanonicalQuote> {
     const bookingType = type?.toLowerCase();
     let subtotal = 0;
     let convenienceFee = 0;
@@ -1349,10 +1463,14 @@ export class BookingsService {
     }
 
     const quoteId = `QUO_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const nowMs = Date.now();
+    const expiresAtMs = nowMs + 15 * 60 * 1000;
+    const expiresAt = new Date(expiresAtMs).toISOString();
+    const ownerUserId = authenticatedUserId || payload?.userId;
 
     const quote: CanonicalQuote = {
       quoteId,
+      ...(ownerUserId ? { userId: ownerUserId } : {}),
       type: bookingType,
       vertical: bookingType,
       items,
@@ -1366,6 +1484,7 @@ export class BookingsService {
       rewardsEarned,
       total: grandTotal,
       grandTotal,
+      amountInMinorUnits: Math.round(grandTotal * 100),
       currency: 'INR',
       expiresAt,
       breakdown,
@@ -1373,9 +1492,18 @@ export class BookingsService {
 
     this.quoteStore.set(quoteId, {
       quote,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 15 * 60 * 1000,
+      userId: ownerUserId,
+      createdAt: nowMs,
+      expiresAt: expiresAtMs,
     });
+
+    if (typeof this.paymentService?.registerQuote === 'function') {
+      this.paymentService.registerQuote(quote, {
+        userId: ownerUserId,
+        createdAt: nowMs,
+        expiresAt: expiresAtMs,
+      });
+    }
 
     return quote;
   }

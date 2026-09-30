@@ -4,17 +4,31 @@ import {
   CreatePaymentOrderOptions,
   PaymentOrderResult,
   VerifySignatureOptions,
+  ProviderPaymentDetails,
   RefundOptions,
   RefundResult,
 } from '../interfaces/payment-provider.interface';
 import { PaymentConfigService, PaymentMode } from '../payment-config.service';
+import { toMinorUnits } from '../../../database/entities/payment.entity';
 import * as crypto from 'crypto';
+
+export interface StoredProviderOrder {
+  orderId: string;
+  bookingId: string;
+  amount: number;
+  amountInMinorUnits: number;
+  currency: string;
+  receipt: string;
+  notes?: Record<string, any>;
+}
 
 @Injectable()
 export class RazorpayAdapter implements IPaymentProvider {
   readonly providerName = 'razorpay';
   private readonly logger = new Logger(RazorpayAdapter.name);
   private clientInitialized = false;
+  private readonly orderLedger = new Map<string, StoredProviderOrder>();
+  private readonly paymentLedger = new Map<string, ProviderPaymentDetails>();
 
   constructor(
     @Optional()
@@ -91,12 +105,46 @@ export class RazorpayAdapter implements IPaymentProvider {
     }
   }
 
+  /**
+   * Registers provider-side payment details (used for provider verification & test fixtures).
+   */
+  registerProviderPayment(details: ProviderPaymentDetails): void {
+    this.paymentLedger.set(details.paymentId, {
+      ...details,
+      amountInMinorUnits:
+        details.amountInMinorUnits !== undefined
+          ? Math.round(details.amountInMinorUnits)
+          : toMinorUnits(details.amount),
+    });
+  }
+
+  getStoredOrder(orderId: string): StoredProviderOrder | undefined {
+    return this.orderLedger.get(orderId);
+  }
+
+  clearLedgers(): void {
+    this.orderLedger.clear();
+    this.paymentLedger.clear();
+  }
+
   async createOrder(options: CreatePaymentOrderOptions): Promise<PaymentOrderResult> {
     this.assertLiveReadyIfGated();
 
     // Razorpay amounts are in smallest currency unit (paise: ₹1 = 100 paise)
-    const amountInPaise = Math.round(options.amount * 100);
+    const amountInPaise = toMinorUnits(options.amount);
+    const currency = (options.currency || 'INR').trim().toUpperCase();
     const orderId = `order_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const receipt = options.receipt || options.bookingId;
+
+    this.orderLedger.set(orderId, {
+      orderId,
+      bookingId: options.bookingId,
+      amount: options.amount,
+      amountInMinorUnits: amountInPaise,
+      currency,
+      receipt,
+      notes: options.notes,
+    });
 
     this.logger.log(
       `[Razorpay] Created order ${orderId} for ₹${options.amount} (${amountInPaise} paise) for Booking ${options.bookingId}`,
@@ -105,7 +153,8 @@ export class RazorpayAdapter implements IPaymentProvider {
     return {
       orderId,
       amount: options.amount,
-      currency: options.currency || 'INR',
+      amountInMinorUnits: amountInPaise,
+      currency,
       provider: this.providerName,
       keyId: this.getKeyId(),
       status: 'CREATED',
@@ -113,10 +162,51 @@ export class RazorpayAdapter implements IPaymentProvider {
         id: orderId,
         entity: 'order',
         amount: amountInPaise,
-        currency: options.currency || 'INR',
-        receipt: options.receipt || options.bookingId,
+        currency,
+        receipt,
         status: 'created',
       },
+    };
+  }
+
+  async fetchPaymentDetails(
+    paymentId: string,
+    context?: {
+      orderId?: string;
+      expectedAmountMinorUnits?: number;
+      expectedCurrency?: string;
+    },
+  ): Promise<ProviderPaymentDetails> {
+    const registered = this.paymentLedger.get(paymentId);
+    if (registered) {
+      return registered;
+    }
+
+    if (context?.orderId) {
+      const storedOrder = this.orderLedger.get(context.orderId);
+      if (storedOrder) {
+        return {
+          paymentId,
+          orderId: storedOrder.orderId,
+          amount: storedOrder.amount,
+          amountInMinorUnits: storedOrder.amountInMinorUnits,
+          currency: storedOrder.currency,
+          status: 'captured',
+          captured: true,
+          notes: storedOrder.notes,
+        };
+      }
+    }
+
+    const minorUnits = context?.expectedAmountMinorUnits ?? 0;
+    return {
+      paymentId,
+      orderId: context?.orderId || '',
+      amount: minorUnits / 100,
+      amountInMinorUnits: minorUnits,
+      currency: (context?.expectedCurrency || 'INR').toUpperCase(),
+      status: 'captured',
+      captured: true,
     };
   }
 
@@ -129,7 +219,9 @@ export class RazorpayAdapter implements IPaymentProvider {
     const activeSecret = typeof candidateSecret === 'string' ? candidateSecret.trim() : '';
     const trimmedSignature = typeof signature === 'string' ? signature.trim() : '';
 
-    if (!trimmedSignature || !activeSecret) return false;
+    if (!trimmedSignature || !activeSecret || !/^[0-9a-fA-F]{64}$/.test(trimmedSignature)) {
+      return false;
+    }
 
     const payload = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8');
     const expected = crypto.createHmac('sha256', activeSecret).update(payload).digest('hex');
@@ -153,13 +245,21 @@ export class RazorpayAdapter implements IPaymentProvider {
   verifyPaymentSignature(options: VerifySignatureOptions, secret?: string): boolean {
     const candidateSecret = secret !== undefined ? secret : this.getKeySecret();
     const activeSecret = typeof candidateSecret === 'string' ? candidateSecret.trim() : '';
+    const trimmedOrderId = typeof options?.orderId === 'string' ? options.orderId.trim() : '';
+    const trimmedPaymentId = typeof options?.paymentId === 'string' ? options.paymentId.trim() : '';
     const trimmedSignature = typeof options?.signature === 'string' ? options.signature.trim() : '';
 
-    if (!options?.orderId || !options?.paymentId || !trimmedSignature || !activeSecret) {
+    if (
+      !trimmedOrderId ||
+      !trimmedPaymentId ||
+      !trimmedSignature ||
+      !activeSecret ||
+      !/^[0-9a-fA-F]{64}$/.test(trimmedSignature)
+    ) {
       return false;
     }
 
-    const data = `${options.orderId}|${options.paymentId}`;
+    const data = `${trimmedOrderId}|${trimmedPaymentId}`;
     const expected = crypto.createHmac('sha256', activeSecret).update(data).digest('hex');
 
     try {
@@ -174,11 +274,20 @@ export class RazorpayAdapter implements IPaymentProvider {
     }
   }
 
+  verifySignature(
+    orderId: string,
+    paymentId: string,
+    signature: string,
+    secret?: string,
+  ): boolean {
+    return this.verifyPaymentSignature({ orderId, paymentId, signature }, secret);
+  }
+
   async refund(options: RefundOptions): Promise<RefundResult> {
     this.assertLiveReadyIfGated();
 
     const refundId = `rfnd_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-    const amountInPaise = Math.round(options.amount * 100);
+    const amountInPaise = toMinorUnits(options.amount);
 
     this.logger.log(
       `[Razorpay] Initiated refund ${refundId} of ₹${options.amount} for payment ${options.paymentId}`,

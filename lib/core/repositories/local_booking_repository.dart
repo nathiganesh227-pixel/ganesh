@@ -134,11 +134,34 @@ class LocalBookingRepository implements BookingRepository {
   }
 
   @override
+  Future<PaymentOrderSession?> createPaymentOrder({
+    required String quoteId,
+    String? bookingId,
+    String? paymentMethod,
+  }) async {
+    return PaymentOrderSession(
+      paymentId: 'PAY_SIM_${DateTime.now().millisecondsSinceEpoch}',
+      bookingId: bookingId ?? 'BK_$quoteId',
+      quoteId: quoteId,
+      providerOrderId: 'order_sim_${DateTime.now().millisecondsSinceEpoch}',
+      amount: 1015.0,
+      amountInMinorUnits: 101500,
+      currency: 'INR',
+      paymentMode: 'SIMULATED',
+      status: 'PENDING',
+      merchantName: 'PLAZA',
+      description: 'PLAZA Booking',
+      expiresAt: DateTime.now().add(const Duration(minutes: 15)).toIso8601String(),
+    );
+  }
+
+  @override
   Future<bool> verifyPayment({
     required String bookingId,
     required String orderId,
     required String paymentId,
     required String signature,
+    String? quoteId,
   }) async {
     return true;
   }
