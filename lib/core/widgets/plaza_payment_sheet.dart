@@ -108,10 +108,17 @@ class _PlazaPaymentSheetState extends State<PlazaPaymentSheet> {
       }
     } catch (e) {
       if (!mounted) return;
+      final rawError = e.toString().replaceAll('Exception:', '').trim();
+      final isTimeoutOrUncertain = rawError.toLowerCase().contains('timeout') ||
+          rawError.toLowerCase().contains('network') ||
+          rawError.toLowerCase().contains('unknown') ||
+          rawError.toLowerCase().contains('verification pending');
       setState(() {
         _isProcessing = false;
         _isVerifying = false;
-        _errorMessage = e.toString().replaceAll('Exception:', '').trim();
+        _errorMessage = isTimeoutOrUncertain
+            ? 'Payment status is being verified. Please check your booking/payment status before trying again.'
+            : rawError;
       });
       widget.onPaymentFailed?.call(_errorMessage!);
     }

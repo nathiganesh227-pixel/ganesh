@@ -7,9 +7,11 @@ import { User } from '../../database/entities/user.entity';
 import { EventEntity } from '../../database/entities/event.entity';
 import { ActivityEntity } from '../../database/entities/activity.entity';
 import { IdempotencyRecordEntity } from '../../database/entities/idempotency-record.entity';
+import { PaymentRecoveryEntity } from '../../database/entities/payment-recovery.entity';
 import { AuthModule } from '../auth/auth.module';
 import { PaymentConfigService } from './payment-config.service';
 import { PaymentService } from './payment.service';
+import { PaymentRecoveryService } from './payment-recovery.service';
 import { RazorpayAdapter } from './providers/razorpay.adapter';
 import { SimulatedPaymentAdapter } from './providers/simulated-payment.adapter';
 import { WebhooksController } from './webhooks.controller';
@@ -27,6 +29,7 @@ import { IdempotencyService } from '../bookings/idempotency.service';
       EventEntity,
       ActivityEntity,
       IdempotencyRecordEntity,
+      PaymentRecoveryEntity,
     ]),
     AuthModule,
   ],
@@ -34,6 +37,7 @@ import { IdempotencyService } from '../bookings/idempotency.service';
   providers: [
     PaymentConfigService,
     PaymentService,
+    PaymentRecoveryService,
     RazorpayAdapter,
     SimulatedPaymentAdapter,
     TwilioSmsAdapter,
@@ -42,6 +46,7 @@ import { IdempotencyService } from '../bookings/idempotency.service';
   exports: [
     PaymentConfigService,
     PaymentService,
+    PaymentRecoveryService,
     RazorpayAdapter,
     SimulatedPaymentAdapter,
     TwilioSmsAdapter,

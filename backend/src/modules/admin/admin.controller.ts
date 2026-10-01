@@ -26,6 +26,8 @@ import {
   AdminPaymentQueryDto,
   AdminAuditLogQueryDto,
   AdminWebhookQueryDto,
+  AdminRecoveryQueryDto,
+  ResolveRecoveryDto,
 } from './dto/admin.dto';
 import {
   CreateMovieDto,
@@ -646,5 +648,32 @@ export class AdminController {
   async getWebhooks(@Query() query: AdminWebhookQueryDto) {
     return this.adminService.getWebhooks(query.limit, query.offset, query);
   }
+
+  // ---------------- PAYMENT RECOVERY INCIDENTS ----------------
+  @Get(['payments/recovery', 'operations/recovery'])
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'List and filter payment and booking recovery incidents' })
+  async getRecoveryIncidents(@Query() query: AdminRecoveryQueryDto) {
+    return this.adminService.getRecoveryIncidents(query);
+  }
+
+  @Get('payments/recovery/:id')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'Get details of a specific payment recovery incident' })
+  async getRecoveryIncidentById(@Param('id') id: string) {
+    return this.adminService.getRecoveryIncidentById(id);
+  }
+
+  @Post('payments/recovery/:id/resolve')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Resolve a payment recovery incident with audit notes' })
+  async resolveRecoveryIncident(
+    @Param('id') id: string,
+    @Body() dto: ResolveRecoveryDto,
+    @Request() req: any,
+  ) {
+    return this.adminService.resolveRecoveryIncident(id, dto, req.user);
+  }
 }
+
 

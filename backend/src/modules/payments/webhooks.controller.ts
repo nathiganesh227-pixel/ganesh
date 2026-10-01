@@ -28,6 +28,8 @@ import { User } from '../../database/entities/user.entity';
 import { EventEntity } from '../../database/entities/event.entity';
 import { ActivityEntity } from '../../database/entities/activity.entity';
 import { TwilioSmsAdapter } from '../notifications/providers/twilio-sms.adapter';
+import { PaymentRecoveryService } from './payment-recovery.service';
+import { FailureCategory, RecoveryStatus } from '../../database/entities/payment-recovery.entity';
 
 @ApiTags('webhooks')
 @Controller('webhooks')
@@ -53,6 +55,8 @@ export class WebhooksController {
     @Optional()
     @InjectRepository(ActivityEntity)
     private readonly activityRepo?: Repository<ActivityEntity>,
+    @Optional()
+    private readonly recoveryService?: PaymentRecoveryService,
   ) {}
 
   @Post('razorpay')

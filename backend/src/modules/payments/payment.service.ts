@@ -16,6 +16,7 @@ import { SimulatedPaymentAdapter } from './providers/simulated-payment.adapter';
 import { IdempotencyService } from '../bookings/idempotency.service';
 import {
   IPaymentProvider,
+  PaymentOrderResult,
   ProviderPaymentDetails,
   RefundResult,
 } from './interfaces/payment-provider.interface';
@@ -123,6 +124,9 @@ export interface ServerPaymentOrderResponse {
   idempotentReplay: boolean;
 }
 
+import { PaymentRecoveryService } from './payment-recovery.service';
+import { FailureCategory, RecoveryStatus } from '../../database/entities/payment-recovery.entity';
+
 @Injectable()
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
@@ -139,12 +143,18 @@ export class PaymentService {
     private readonly paymentConfigService?: PaymentConfigService,
     @Optional()
     private readonly idempotencyService?: IdempotencyService,
+    @Optional()
+    private readonly recoveryService?: PaymentRecoveryService,
   ) {
     this.configService = this.paymentConfigService ?? new PaymentConfigService();
     const summary = this.configService.validateConfiguration();
     this.logger.log(
       `[PaymentService] Initialized with paymentMode=${summary.paymentMode}, status=${summary.paymentConfigStatus}, liveEnabled=${summary.razorpayLiveEnabled}`,
     );
+  }
+
+  getRecoveryService(): PaymentRecoveryService | undefined {
+    return this.recoveryService;
   }
 
   getConfigService(): PaymentConfigService {
@@ -600,18 +610,43 @@ export class PaymentService {
       }
     }
 
-    const order = await activeProvider.createOrder({
-      bookingId: effectiveBookingId,
-      amount: canonicalAmount,
-      currency: canonicalCurrency,
-      receipt: effectiveBookingId,
-      notes: {
-        quoteId: quoteRecord.quote.quoteId,
+    let order: PaymentOrderResult;
+    try {
+      order = await activeProvider.createOrder({
         bookingId: effectiveBookingId,
-        userId,
-        paymentMethod: input.paymentMethod || 'RAZORPAY_CHECKOUT',
-      },
-    });
+        amount: canonicalAmount,
+        currency: canonicalCurrency,
+        receipt: effectiveBookingId,
+        notes: {
+          quoteId: quoteRecord.quote.quoteId,
+          bookingId: effectiveBookingId,
+          userId,
+          paymentMethod: input.paymentMethod || 'RAZORPAY_CHECKOUT',
+        },
+      });
+    } catch (providerErr: any) {
+      const category =
+        this.recoveryService?.classifyError(providerErr) ||
+        FailureCategory.UNKNOWN_PROVIDER_OUTCOME;
+
+      if (this.recoveryService) {
+        await this.recoveryService.recordIncident({
+          resourceType: 'order',
+          resourceId: quoteRecord.quote.quoteId,
+          bookingId: effectiveBookingId,
+          failureCategory: category,
+          rawError: providerErr,
+          metadata: {
+            quoteId: quoteRecord.quote.quoteId,
+            userId,
+            amount: canonicalAmount,
+            currency: canonicalCurrency,
+          },
+        });
+      }
+
+      throw providerErr;
+    }
 
     const paymentId = `PAY_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
@@ -1043,6 +1078,11 @@ export class PaymentService {
       paymentRecord &&
       toMinorUnits(paymentRecord.amount) !== quoteRecord.canonicalTotalMinorUnits
     ) {
+      if (paymentRecord.status === PaymentStatus.PENDING) {
+        paymentRecord.status = PaymentStatus.FAILED;
+        paymentRecord.failureReason = PaymentErrorCode.PAYMENT_AMOUNT_MISMATCH;
+        await this.paymentRepo?.save(paymentRecord);
+      }
       throw new BadRequestException(
         `${PaymentErrorCode.PAYMENT_AMOUNT_MISMATCH}: Stored payment amount does not match canonical quote amount`,
       );
@@ -1053,6 +1093,11 @@ export class PaymentService {
       paymentRecord &&
       paymentRecord.currency.toUpperCase() !== quoteRecord.canonicalCurrency
     ) {
+      if (paymentRecord.status === PaymentStatus.PENDING) {
+        paymentRecord.status = PaymentStatus.FAILED;
+        paymentRecord.failureReason = PaymentErrorCode.PAYMENT_CURRENCY_MISMATCH;
+        await this.paymentRepo?.save(paymentRecord);
+      }
       throw new BadRequestException(
         `${PaymentErrorCode.PAYMENT_CURRENCY_MISMATCH}: Stored payment currency does not match canonical quote currency`,
       );
@@ -1063,6 +1108,11 @@ export class PaymentService {
       options.currency !== undefined &&
       String(options.currency).trim().toUpperCase() !== expectedCurrency
     ) {
+      if (paymentRecord && paymentRecord.status === PaymentStatus.PENDING) {
+        paymentRecord.status = PaymentStatus.FAILED;
+        paymentRecord.failureReason = PaymentErrorCode.PAYMENT_CURRENCY_MISMATCH;
+        await this.paymentRepo?.save(paymentRecord);
+      }
       throw new BadRequestException(
         `${PaymentErrorCode.PAYMENT_CURRENCY_MISMATCH}: Currency mismatch (expected ${expectedCurrency})`,
       );
@@ -1073,6 +1123,11 @@ export class PaymentService {
       expectedAmountMinorUnits !== undefined &&
       toMinorUnits(options.amount) !== expectedAmountMinorUnits
     ) {
+      if (paymentRecord && paymentRecord.status === PaymentStatus.PENDING) {
+        paymentRecord.status = PaymentStatus.FAILED;
+        paymentRecord.failureReason = PaymentErrorCode.PAYMENT_AMOUNT_MISMATCH;
+        await this.paymentRepo?.save(paymentRecord);
+      }
       throw new BadRequestException(
         `${PaymentErrorCode.PAYMENT_AMOUNT_MISMATCH}: Amount mismatch (expected ${expectedAmountMinorUnits} minor units)`,
       );
@@ -1083,6 +1138,11 @@ export class PaymentService {
       expectedAmountMinorUnits !== undefined &&
       Math.round(options.amountInMinorUnits) !== expectedAmountMinorUnits
     ) {
+      if (paymentRecord && paymentRecord.status === PaymentStatus.PENDING) {
+        paymentRecord.status = PaymentStatus.FAILED;
+        paymentRecord.failureReason = PaymentErrorCode.PAYMENT_AMOUNT_MISMATCH;
+        await this.paymentRepo?.save(paymentRecord);
+      }
       throw new BadRequestException(
         `${PaymentErrorCode.PAYMENT_AMOUNT_MISMATCH}: Amount in minor units mismatch`,
       );
@@ -1091,25 +1151,74 @@ export class PaymentService {
     // Fetch provider-side payment details where supported
     let providerDetails: ProviderPaymentDetails | undefined;
     if (typeof activeProvider.fetchPaymentDetails === 'function') {
-      providerDetails = await activeProvider.fetchPaymentDetails(paymentId, {
-        orderId,
-        expectedAmountMinorUnits,
-        expectedCurrency,
-      });
+      try {
+        providerDetails = await activeProvider.fetchPaymentDetails(paymentId, {
+          orderId,
+          expectedAmountMinorUnits,
+          expectedCurrency,
+        });
+      } catch (err: any) {
+        const category =
+          this.recoveryService?.classifyError(err) ||
+          FailureCategory.UNKNOWN_PROVIDER_OUTCOME;
+
+        if (this.recoveryService) {
+          await this.recoveryService.recordIncident({
+            resourceType: 'payment',
+            resourceId: paymentRecord?.id || paymentId,
+            paymentId: paymentRecord?.id || paymentId,
+            bookingId: options.bookingId || paymentRecord?.bookingId,
+            providerOrderId: orderId,
+            providerPaymentId: paymentId,
+            failureCategory: category,
+            rawError: err,
+          });
+        }
+
+        const isUncertain = this.recoveryService?.isUnknownOutcome(category) ?? false;
+        if (isUncertain) {
+          throw new ServiceUnavailableException(
+            `Payment verification status is uncertain due to provider timeout or network error: ${err.message}`,
+          );
+        }
+
+        if (paymentRecord && paymentRecord.status === PaymentStatus.PENDING) {
+          paymentRecord.status = PaymentStatus.FAILED;
+          paymentRecord.failureReason = err.message;
+          await this.paymentRepo?.save(paymentRecord);
+        }
+
+        throw err;
+      }
 
       if (providerDetails.paymentId !== paymentId) {
+        if (paymentRecord && paymentRecord.status === PaymentStatus.PENDING) {
+          paymentRecord.status = PaymentStatus.FAILED;
+          paymentRecord.failureReason = PaymentErrorCode.PAYMENT_ID_MISMATCH;
+          await this.paymentRepo?.save(paymentRecord);
+        }
         throw new BadRequestException(
           `${PaymentErrorCode.PAYMENT_ID_MISMATCH}: Provider payment ID mismatch`,
         );
       }
 
       if (providerDetails.orderId && providerDetails.orderId !== orderId) {
+        if (paymentRecord && paymentRecord.status === PaymentStatus.PENDING) {
+          paymentRecord.status = PaymentStatus.FAILED;
+          paymentRecord.failureReason = PaymentErrorCode.PAYMENT_ORDER_MISMATCH;
+          await this.paymentRepo?.save(paymentRecord);
+        }
         throw new BadRequestException(
           `${PaymentErrorCode.PAYMENT_ORDER_MISMATCH}: Provider payment is linked to order ${providerDetails.orderId}, expected ${orderId}`,
         );
       }
 
       if (providerDetails.currency.toUpperCase() !== expectedCurrency) {
+        if (paymentRecord && paymentRecord.status === PaymentStatus.PENDING) {
+          paymentRecord.status = PaymentStatus.FAILED;
+          paymentRecord.failureReason = PaymentErrorCode.PAYMENT_CURRENCY_MISMATCH;
+          await this.paymentRepo?.save(paymentRecord);
+        }
         throw new BadRequestException(
           `${PaymentErrorCode.PAYMENT_CURRENCY_MISMATCH}: Provider payment currency ${providerDetails.currency} does not match canonical currency ${expectedCurrency}`,
         );
@@ -1119,6 +1228,11 @@ export class PaymentService {
         expectedAmountMinorUnits !== undefined &&
         providerDetails.amountInMinorUnits !== expectedAmountMinorUnits
       ) {
+        if (paymentRecord && paymentRecord.status === PaymentStatus.PENDING) {
+          paymentRecord.status = PaymentStatus.FAILED;
+          paymentRecord.failureReason = PaymentErrorCode.PAYMENT_AMOUNT_MISMATCH;
+          await this.paymentRepo?.save(paymentRecord);
+        }
         throw new BadRequestException(
           `${PaymentErrorCode.PAYMENT_AMOUNT_MISMATCH}: Provider payment amount (${providerDetails.amountInMinorUnits}) does not match canonical amount (${expectedAmountMinorUnits})`,
         );
@@ -1130,6 +1244,11 @@ export class PaymentService {
         'captured'
       ).toLowerCase();
       if (effectiveStatus !== 'captured' && effectiveStatus !== 'authorized') {
+        if (paymentRecord && paymentRecord.status === PaymentStatus.PENDING) {
+          paymentRecord.status = PaymentStatus.FAILED;
+          paymentRecord.failureReason = PaymentErrorCode.PAYMENT_NOT_VERIFIED;
+          await this.paymentRepo?.save(paymentRecord);
+        }
         throw new BadRequestException(
           `${PaymentErrorCode.PAYMENT_NOT_VERIFIED}: Provider payment status '${effectiveStatus}' is not eligible for capture`,
         );
@@ -1137,6 +1256,11 @@ export class PaymentService {
     } else if (options.providerStatus) {
       const effectiveStatus = options.providerStatus.toLowerCase();
       if (effectiveStatus !== 'captured' && effectiveStatus !== 'authorized') {
+        if (paymentRecord && paymentRecord.status === PaymentStatus.PENDING) {
+          paymentRecord.status = PaymentStatus.FAILED;
+          paymentRecord.failureReason = PaymentErrorCode.PAYMENT_NOT_VERIFIED;
+          await this.paymentRepo?.save(paymentRecord);
+        }
         throw new BadRequestException(
           `${PaymentErrorCode.PAYMENT_NOT_VERIFIED}: Provider payment status '${effectiveStatus}' is not eligible for capture`,
         );
@@ -1330,11 +1454,47 @@ export class PaymentService {
       }
     }
 
-    const result = await activeProvider.refund({
-      paymentId: payment?.providerPaymentId || paymentId,
-      amount,
-      reason,
-    });
+    let result: RefundResult;
+    try {
+      result = await activeProvider.refund({
+        paymentId: payment?.providerPaymentId || paymentId,
+        amount,
+        reason,
+      });
+    } catch (refundErr: any) {
+      const category =
+        this.recoveryService?.classifyError(refundErr) ||
+        FailureCategory.UNKNOWN_PROVIDER_OUTCOME;
+
+      const isUncertain = this.recoveryService?.isUnknownOutcome(category) ?? false;
+
+      if (this.recoveryService) {
+        await this.recoveryService.recordIncident({
+          resourceType: 'refund',
+          resourceId: payment?.id || paymentId,
+          paymentId: payment?.id || paymentId,
+          bookingId: payment?.bookingId,
+          providerPaymentId: payment?.providerPaymentId || paymentId,
+          failureCategory: category,
+          rawError: refundErr,
+          metadata: {
+            refundAmount: amount,
+            reason,
+            refundOperationId: refundOpId,
+            preservedState: isUncertain ? 'REFUND_PENDING' : 'CAPTURED',
+          },
+        });
+      }
+
+      // If uncertain timeout, preserve REFUND_PENDING (never assume failure or success)
+      // If definitive failure, revert to CAPTURED
+      if (!isUncertain && this.paymentRepo && payment) {
+        payment.status = PaymentStatus.CAPTURED;
+        await this.paymentRepo.save(payment);
+      }
+
+      throw refundErr;
+    }
 
     if (this.paymentRepo && payment) {
       const targetAmountPaise = toMinorUnits(amount);

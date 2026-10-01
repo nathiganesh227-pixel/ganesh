@@ -114,3 +114,32 @@ export class AdminWebhookQueryDto extends PaginationQueryDto {
   providerOrderId?: string;
 }
 
+export class AdminRecoveryQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ example: 'REQUIRED' })
+  @IsOptional()
+  status?: string;
+
+  @ApiPropertyOptional({ example: 'UNKNOWN_PROVIDER_OUTCOME' })
+  @IsOptional()
+  failureCategory?: string;
+
+  @ApiPropertyOptional({ example: 'bk_' })
+  @IsOptional()
+  bookingId?: string;
+
+  @ApiPropertyOptional({ example: 'pay_' })
+  @IsOptional()
+  paymentId?: string;
+
+  @ApiPropertyOptional({ example: 'rec_' })
+  @IsOptional()
+  search?: string;
+}
+
+export class ResolveRecoveryDto {
+  @ApiPropertyOptional({ example: 'Manually verified capture on gateway dashboard; ticket confirmed' })
+  @IsOptional()
+  notes?: string;
+}
+
+

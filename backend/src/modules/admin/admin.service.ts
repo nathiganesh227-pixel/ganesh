@@ -23,7 +23,13 @@ import { ShowEntity } from '../../database/entities/show.entity';
 import { PaymentEntity, PaymentStatus } from '../../database/entities/payment.entity';
 import { NotificationEntity } from '../../database/entities/notification.entity';
 import { WebhookEventEntity } from '../../database/entities/webhook-event.entity';
+import {
+  PaymentRecoveryEntity,
+  FailureCategory,
+  RecoveryStatus,
+} from '../../database/entities/payment-recovery.entity';
 import { PaymentService } from '../payments/payment.service';
+import { PaymentRecoveryService } from '../payments/payment-recovery.service';
 import {
   PaymentConfigService,
   PaymentMode,
@@ -37,6 +43,8 @@ import {
   AdminPaymentQueryDto,
   AdminAuditLogQueryDto,
   AdminWebhookQueryDto,
+  AdminRecoveryQueryDto,
+  ResolveRecoveryDto,
 } from './dto/admin.dto';
 import {
   CreateMovieDto,
@@ -103,6 +111,11 @@ export class AdminService {
     private readonly webhookEventRepo?: Repository<WebhookEventEntity>,
     @Optional()
     private readonly paymentService?: PaymentService,
+    @Optional()
+    @InjectRepository(PaymentRecoveryEntity)
+    private readonly paymentRecoveryRepo?: Repository<PaymentRecoveryEntity>,
+    @Optional()
+    private readonly paymentRecoveryService?: PaymentRecoveryService,
   ) {}
 
   getHealth() {
@@ -1941,6 +1954,123 @@ export class AdminService {
   }
 
 
+
+  // ---------------- PAYMENT RECOVERY OPERATIONS ----------------
+  async getRecoveryIncidents(query: AdminRecoveryQueryDto) {
+    if (!this.paymentRecoveryRepo) {
+      return { total: 0, limit: query?.limit || 50, offset: query?.offset || 0, incidents: [] };
+    }
+
+    if (!this.paymentRecoveryRepo.createQueryBuilder) {
+      const records = await this.paymentRecoveryRepo.find();
+      return {
+        total: records.length,
+        limit: query?.limit || 50,
+        offset: query?.offset || 0,
+        incidents: records.map((r) => this.toSafeRecoveryRecord(r)),
+      };
+    }
+
+    const qb = this.paymentRecoveryRepo.createQueryBuilder('rec');
+
+    if (query?.status) {
+      qb.andWhere('rec.recoveryStatus = :status', { status: query.status });
+    }
+    if (query?.failureCategory) {
+      qb.andWhere('rec.failureCategory = :cat', { cat: query.failureCategory });
+    }
+    if (query?.bookingId) {
+      qb.andWhere('rec.bookingId = :bid', { bid: query.bookingId });
+    }
+    if (query?.paymentId) {
+      qb.andWhere('rec.paymentId = :pid', { pid: query.paymentId });
+    }
+    if (query?.search) {
+      qb.andWhere(
+        '(rec.id ILIKE :search OR rec.bookingId ILIKE :search OR rec.paymentId ILIKE :search OR rec.providerOrderId ILIKE :search OR rec.providerPaymentId ILIKE :search)',
+        { search: `%${query.search}%` },
+      );
+    }
+
+    qb.orderBy('rec.createdAt', 'DESC');
+    qb.skip(query?.offset || 0);
+    qb.take(query?.limit || 50);
+
+    const [records, total] = await qb.getManyAndCount();
+
+    return {
+      total,
+      limit: query?.limit || 50,
+      offset: query?.offset || 0,
+      incidents: records.map((r) => this.toSafeRecoveryRecord(r)),
+    };
+  }
+
+  async getRecoveryIncidentById(id: string) {
+    if (!this.paymentRecoveryRepo) {
+      throw new NotFoundException(`Recovery record ${id} not found`);
+    }
+    const record = await this.paymentRecoveryRepo.findOne({ where: { id } });
+    if (!record) {
+      throw new NotFoundException(`Recovery record with ID ${id} not found`);
+    }
+    return this.toSafeRecoveryRecord(record);
+  }
+
+  async resolveRecoveryIncident(id: string, dto: ResolveRecoveryDto, actor: any) {
+    if (this.paymentRecoveryService) {
+      const updated = await this.paymentRecoveryService.resolveIncident(id, dto?.notes);
+      await this.createAuditRecord(actor, 'RESOLVE_RECOVERY_INCIDENT', 'PaymentRecovery', id, {
+        notes: dto?.notes,
+        bookingId: updated.bookingId,
+        paymentId: updated.paymentId,
+      });
+      return this.toSafeRecoveryRecord(updated);
+    }
+
+    if (!this.paymentRecoveryRepo) {
+      throw new NotFoundException(`Recovery record ${id} not found`);
+    }
+
+    const record = await this.paymentRecoveryRepo.findOne({ where: { id } });
+    if (!record) {
+      throw new NotFoundException(`Recovery record with ID ${id} not found`);
+    }
+
+    record.recoveryStatus = RecoveryStatus.RESOLVED;
+    record.requiresManualIntervention = false;
+    record.resolutionNotes = dto?.notes || 'Resolved via admin console';
+    record.resolvedAt = new Date();
+    await this.paymentRecoveryRepo.save(record);
+
+    await this.createAuditRecord(actor, 'RESOLVE_RECOVERY_INCIDENT', 'PaymentRecovery', id, {
+      notes: dto?.notes,
+      bookingId: record.bookingId,
+      paymentId: record.paymentId,
+    });
+
+    return this.toSafeRecoveryRecord(record);
+  }
+
+  private toSafeRecoveryRecord(r: PaymentRecoveryEntity) {
+    return {
+      id: r.id,
+      bookingId: r.bookingId,
+      paymentId: r.paymentId,
+      providerOrderId: r.providerOrderId || null,
+      providerPaymentId: r.providerPaymentId || null,
+      failureCategory: r.failureCategory,
+      recoveryStatus: r.recoveryStatus,
+      safeFailureReason: r.safeFailureReason || null,
+      retryCount: r.retryCount,
+      requiresManualIntervention: r.requiresManualIntervention,
+      resolutionNotes: r.resolutionNotes || null,
+      lastRetryAt: r.lastRetryAt || null,
+      resolvedAt: r.resolvedAt || null,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    };
+  }
 
   private async createAuditRecord(
     actor: { id?: string; sub?: string; email?: string },

@@ -69,6 +69,9 @@ export class PaymentFailedDto {
   reason?: string;
 }
 
+import { PaymentRecoveryService } from './payment-recovery.service';
+import { FailureCategory, RecoveryStatus } from '../../database/entities/payment-recovery.entity';
+
 @ApiTags('payments')
 @Controller('payments')
 export class PaymentsController {
@@ -94,6 +97,8 @@ export class PaymentsController {
     private readonly notificationAdapter?: TwilioSmsAdapter,
     @Optional()
     private readonly idempotencyService?: IdempotencyService,
+    @Optional()
+    private readonly recoveryService?: PaymentRecoveryService,
   ) {}
 
   @Post('orders')
@@ -244,6 +249,17 @@ export class PaymentsController {
       this.logger.warn(
         `[PaymentVerify] Invalid HMAC signature for payment ${razorpayPaymentId}, order ${razorpayOrderId}`,
       );
+      if (this.recoveryService) {
+        await this.recoveryService.recordIncident({
+          resourceType: 'payment',
+          resourceId: razorpayPaymentId,
+          bookingId,
+          providerOrderId: razorpayOrderId,
+          providerPaymentId: razorpayPaymentId,
+          failureCategory: FailureCategory.AUTHORIZATION_FAILURE,
+          safeFailureReason: 'Invalid payment signature verification failed',
+        });
+      }
       throw new UnauthorizedException(
         `${PaymentErrorCode.INVALID_PAYMENT_SIGNATURE}: Invalid payment signature verification failed`,
       );
@@ -455,11 +471,33 @@ export class PaymentsController {
     }
 
     // Server-side provider payment details verification
-    const providerDetails = await this.razorpayAdapter.fetchPaymentDetails(razorpayPaymentId, {
-      orderId: razorpayOrderId,
-      expectedAmountMinorUnits: canonicalAmountMinorUnits,
-      expectedCurrency: canonicalCurrency,
-    });
+    let providerDetails: any;
+    try {
+      providerDetails = await this.razorpayAdapter.fetchPaymentDetails(razorpayPaymentId, {
+        orderId: razorpayOrderId,
+        expectedAmountMinorUnits: canonicalAmountMinorUnits,
+        expectedCurrency: canonicalCurrency,
+      });
+    } catch (fetchErr: any) {
+      const category =
+        this.recoveryService?.classifyError(fetchErr) ||
+        FailureCategory.UNKNOWN_PROVIDER_OUTCOME;
+
+      if (this.recoveryService) {
+        await this.recoveryService.recordIncident({
+          resourceType: 'payment',
+          resourceId: payment?.id || razorpayPaymentId,
+          paymentId: payment?.id || razorpayPaymentId,
+          bookingId,
+          providerOrderId: razorpayOrderId,
+          providerPaymentId: razorpayPaymentId,
+          failureCategory: category,
+          rawError: fetchErr,
+        });
+      }
+
+      throw fetchErr;
+    }
 
     if (providerDetails.paymentId !== razorpayPaymentId) {
       throw new BadRequestException(
@@ -560,37 +598,86 @@ export class PaymentsController {
 
     // 10. Idempotent Rewards Points Awarding (only on first confirmation)
     if (isFirstConfirmation && !booking.metadata?.rewardAwarded && this.userRepo) {
-      let pointsToAward = 0;
-      if (booking.type === BookingType.MOVIE) {
-        pointsToAward = Math.round(booking.totalPrice * 0.1);
-      } else if (booking.type === BookingType.DINING) {
-        pointsToAward = 100;
-      } else {
-        pointsToAward = Math.round(booking.totalPrice * 0.05);
-      }
+      try {
+        let pointsToAward = 0;
+        if (booking.type === BookingType.MOVIE) {
+          pointsToAward = Math.round(booking.totalPrice * 0.1);
+        } else if (booking.type === BookingType.DINING) {
+          pointsToAward = 100;
+        } else {
+          pointsToAward = Math.round(booking.totalPrice * 0.05);
+        }
 
-      if (pointsToAward > 0) {
-        const user = await this.userRepo.findOne({ where: { id: booking.userId } });
-        if (user) {
-          user.rewardPoints = (user.rewardPoints || 0) + pointsToAward;
-          await this.userRepo.save(user);
-          booking.metadata.rewardAwarded = true;
-          booking.metadata.rewardPoints = pointsToAward;
-          this.logger.log(
-            `[PaymentVerify] Awarded ${pointsToAward} reward points to user ${user.id} for booking ${booking.id}`,
-          );
+        if (pointsToAward > 0) {
+          const user = await this.userRepo.findOne({ where: { id: booking.userId } });
+          if (user) {
+            user.rewardPoints = (user.rewardPoints || 0) + pointsToAward;
+            await this.userRepo.save(user);
+            booking.metadata.rewardAwarded = true;
+            booking.metadata.rewardPoints = pointsToAward;
+            this.logger.log(
+              `[PaymentVerify] Awarded ${pointsToAward} reward points to user ${user.id} for booking ${booking.id}`,
+            );
+          }
+        }
+      } catch (rewardErr: any) {
+        this.logger.warn(
+          `[PaymentVerify] Reward processing failed for booking ${booking.id}: ${rewardErr.message}`,
+        );
+        if (this.recoveryService) {
+          await this.recoveryService.recordIncident({
+            resourceType: 'reward',
+            resourceId: booking.id,
+            bookingId: booking.id,
+            paymentId: payment?.id,
+            failureCategory: FailureCategory.REWARD_FAILURE,
+            rawError: rewardErr,
+          });
         }
       }
     }
 
-    await this.bookingRepo.save(booking);
+    try {
+      await this.bookingRepo.save(booking);
+    } catch (bookingSaveErr: any) {
+      this.logger.error(
+        `[PaymentVerify] Booking confirmation save failed for booking ${booking.id}: ${bookingSaveErr.message}`,
+      );
+      if (this.recoveryService) {
+        await this.recoveryService.recordIncident({
+          resourceType: 'booking',
+          resourceId: booking.id,
+          bookingId: booking.id,
+          paymentId: payment?.id,
+          failureCategory: FailureCategory.BOOKING_CONFIRMATION_FAILURE,
+          rawError: bookingSaveErr,
+        });
+      }
+      throw bookingSaveErr;
+    }
 
     // 11. Dispatch SMS Notification only on first confirmation
     if (isFirstConfirmation && this.notificationAdapter) {
-      await this.notificationAdapter.sendSms({
-        to: '+919876543210',
-        message: `Your PLAZA booking #${booking.id} (${booking.title}) is confirmed! Show your QR code pass at venue.`,
-      });
+      try {
+        await this.notificationAdapter.sendSms({
+          to: '+919876543210',
+          message: `Your PLAZA booking #${booking.id} (${booking.title}) is confirmed! Show your QR code pass at venue.`,
+        });
+      } catch (smsErr: any) {
+        this.logger.warn(
+          `[PaymentVerify] SMS notification dispatch failed for booking ${booking.id}: ${smsErr.message}`,
+        );
+        if (this.recoveryService) {
+          await this.recoveryService.recordIncident({
+            resourceType: 'notification',
+            resourceId: booking.id,
+            bookingId: booking.id,
+            paymentId: payment?.id,
+            failureCategory: FailureCategory.NOTIFICATION_FAILURE,
+            rawError: smsErr,
+          });
+        }
+      }
     }
 
     this.logger.log(

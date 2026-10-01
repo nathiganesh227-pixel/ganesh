@@ -21,6 +21,7 @@ import { ShowEntity } from '../../database/entities/show.entity';
 import { PaymentEntity } from '../../database/entities/payment.entity';
 import { NotificationEntity } from '../../database/entities/notification.entity';
 import { WebhookEventEntity } from '../../database/entities/webhook-event.entity';
+import { PaymentRecoveryEntity } from '../../database/entities/payment-recovery.entity';
 import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
@@ -42,6 +43,7 @@ import { PaymentsModule } from '../payments/payments.module';
       PaymentEntity,
       NotificationEntity,
       WebhookEventEntity,
+      PaymentRecoveryEntity,
     ]),
     AuthModule,
     PaymentsModule,
