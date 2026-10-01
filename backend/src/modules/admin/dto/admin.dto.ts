@@ -91,3 +91,26 @@ export class AdminAuditLogQueryDto extends PaginationQueryDto {
   @IsOptional()
   actorUserId?: string;
 }
+
+export class AdminWebhookQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ example: 'PROCESSED' })
+  @IsOptional()
+  status?: string;
+
+  @ApiPropertyOptional({ example: 'payment.captured' })
+  @IsOptional()
+  eventType?: string;
+
+  @ApiPropertyOptional({ example: 'bk_' })
+  @IsOptional()
+  bookingId?: string;
+
+  @ApiPropertyOptional({ example: 'pay_' })
+  @IsOptional()
+  providerPaymentId?: string;
+
+  @ApiPropertyOptional({ example: 'order_' })
+  @IsOptional()
+  providerOrderId?: string;
+}
+

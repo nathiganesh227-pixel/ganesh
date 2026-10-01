@@ -10,7 +10,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { runSeed } from './database/seeds/seed';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   // Optional database seed on startup if SEED_DATABASE=true
   if (process.env.SEED_DATABASE === 'true') {
@@ -32,9 +32,24 @@ async function bootstrap() {
     }),
   );
 
-  // Request body size limits (prevents payload flood attacks)
-  app.use(json({ limit: '2mb' }));
-  app.use(urlencoded({ extended: true, limit: '2mb' }));
+  // Request body size limits with exact rawBody retention for webhook signature verification
+  app.use(
+    json({
+      limit: '2mb',
+      verify: (req: any, _res, buf) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
+  app.use(
+    urlencoded({
+      extended: true,
+      limit: '2mb',
+      verify: (req: any, _res, buf) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
 
   // Strict CORS configuration
   app.enableCors({

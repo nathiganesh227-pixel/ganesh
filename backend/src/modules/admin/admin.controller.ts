@@ -25,6 +25,7 @@ import {
   AdminBookingQueryDto,
   AdminPaymentQueryDto,
   AdminAuditLogQueryDto,
+  AdminWebhookQueryDto,
 } from './dto/admin.dto';
 import {
   CreateMovieDto,
@@ -637,4 +638,13 @@ export class AdminController {
   async getAuditLogs(@Query() query: AdminAuditLogQueryDto) {
     return this.adminService.getAuditLogs(query.limit, query.offset, query);
   }
+
+  // ---------------- WEBHOOK AUDIT LOGS ----------------
+  @Get('webhooks')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'List and filter received Razorpay webhook events with safe projection' })
+  async getWebhooks(@Query() query: AdminWebhookQueryDto) {
+    return this.adminService.getWebhooks(query.limit, query.offset, query);
+  }
 }
+

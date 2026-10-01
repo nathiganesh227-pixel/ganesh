@@ -36,6 +36,7 @@ import {
   AdminBookingQueryDto,
   AdminPaymentQueryDto,
   AdminAuditLogQueryDto,
+  AdminWebhookQueryDto,
 } from './dto/admin.dto';
 import {
   CreateMovieDto,
@@ -1858,6 +1859,68 @@ export class AdminService {
 
     return qb.getMany();
   }
+
+  // ---------------- WEBHOOK AUDIT LOGS ----------------
+  async getWebhooks(limit = 50, offset = 0, query?: AdminWebhookQueryDto) {
+    if (!this.webhookEventRepo) {
+      return [];
+    }
+
+    if (!this.webhookEventRepo.createQueryBuilder) {
+      const all = await this.webhookEventRepo.find({
+        take: limit,
+        skip: offset,
+        order: { receivedAt: 'DESC' },
+      });
+      return all.map(this.toSafeWebhookEvent);
+    }
+
+    const qb = this.webhookEventRepo.createQueryBuilder('we');
+    if (query?.status) {
+      qb.andWhere('we.status = :status', { status: query.status });
+    }
+    if (query?.eventType) {
+      qb.andWhere('we.eventType = :eventType', { eventType: query.eventType });
+    }
+    if (query?.bookingId) {
+      qb.andWhere('we.bookingId = :bookingId', { bookingId: query.bookingId });
+    }
+    if (query?.providerPaymentId) {
+      qb.andWhere('we.providerPaymentId = :providerPaymentId', { providerPaymentId: query.providerPaymentId });
+    }
+    if (query?.providerOrderId) {
+      qb.andWhere('we.providerOrderId = :providerOrderId', { providerOrderId: query.providerOrderId });
+    }
+
+    qb.orderBy('we.receivedAt', 'DESC');
+    qb.skip(offset);
+    qb.take(limit);
+
+    const events = await qb.getMany();
+    return events.map(this.toSafeWebhookEvent);
+  }
+
+  private toSafeWebhookEvent(event: WebhookEventEntity) {
+    return {
+      id: event.id,
+      provider: event.provider,
+      eventType: event.eventType,
+      status: event.status,
+      providerPaymentId: event.providerPaymentId || null,
+      providerOrderId: event.providerOrderId || null,
+      paymentId: event.paymentId || null,
+      bookingId: event.bookingId || null,
+      amount: event.amount != null ? Number(event.amount) : null,
+      amountInMinorUnits: event.amountInMinorUnits != null ? Number(event.amountInMinorUnits) : null,
+      currency: event.currency || 'INR',
+      failureReason: event.failureReason || null,
+      receivedAt: event.receivedAt,
+      processedAt: event.processedAt,
+      updatedAt: event.updatedAt,
+    };
+  }
+
+
 
   private async createAuditRecord(
     actor: { id?: string; sub?: string; email?: string },
