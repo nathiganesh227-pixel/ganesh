@@ -163,6 +163,31 @@ export class ControlledPaymentTestService {
     return this.isGateClosedPermanently || this.executedTestCount >= this.MAX_CONTROLLED_TESTS;
   }
 
+  async isGateClosedDurable(): Promise<boolean> {
+    if (this.isGateClosedPermanently || this.executedTestCount >= this.MAX_CONTROLLED_TESTS) {
+      return true;
+    }
+    if (this.paymentRepo) {
+      try {
+        const payments = await this.paymentRepo.find();
+        const controlled = payments.filter(
+          (p) => (p.metadata && (p.metadata as any).controlledProductionPaymentTest === true) || p.id?.startsWith('pay_cpt_'),
+        );
+        const hasExecuted = controlled.some((p) =>
+          [PaymentStatus.CAPTURED, PaymentStatus.REFUND_PENDING, PaymentStatus.REFUNDED].includes(p.status),
+        );
+        if (hasExecuted || controlled.length >= this.MAX_CONTROLLED_TESTS) {
+          this.isGateClosedPermanently = true;
+          return true;
+        }
+      } catch {
+        // fail closed on DB errors
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * Evaluates the preflight checklist against strict fail-closed criteria.
    */
@@ -172,15 +197,28 @@ export class ControlledPaymentTestService {
     const summary = config.getSafeSummary();
 
     const optInActive = this.isOptInEnabled();
-    const testCountWithinLimit = this.executedTestCount < this.MAX_CONTROLLED_TESTS && !this.isGateClosedPermanently;
-    const serverAuthoritativeAmountConfigured = this.FIXED_TEST_AMOUNT > 0 && this.FIXED_TEST_CURRENCY === 'INR';
-
     let databaseReachable = true;
     let noUnresolvedCriticalIncidents = true;
 
+    let durableCount = this.executedTestCount;
+    let durableGateClosed = this.isGateClosedPermanently;
+
     try {
       if (this.paymentRepo) {
-        await this.paymentRepo.findOne({ where: { id: 'health_probe' } });
+        const payments = await this.paymentRepo.find();
+        const controlled = payments.filter(
+          (p) => (p.metadata && (p.metadata as any).controlledProductionPaymentTest === true) || p.id?.startsWith('pay_cpt_'),
+        );
+        if (controlled.length > durableCount) {
+          durableCount = controlled.length;
+        }
+        const hasExecuted = controlled.some((p) =>
+          [PaymentStatus.CAPTURED, PaymentStatus.REFUND_PENDING, PaymentStatus.REFUNDED].includes(p.status),
+        );
+        if (hasExecuted || durableCount >= this.MAX_CONTROLLED_TESTS) {
+          durableGateClosed = true;
+          this.isGateClosedPermanently = true;
+        }
       }
     } catch {
       databaseReachable = false;
@@ -198,6 +236,9 @@ export class ControlledPaymentTestService {
     } catch {
       // Ignored
     }
+
+    const testCountWithinLimit = durableCount < this.MAX_CONTROLLED_TESTS && !durableGateClosed;
+    const serverAuthoritativeAmountConfigured = this.FIXED_TEST_AMOUNT > 0 && this.FIXED_TEST_CURRENCY === 'INR';
 
     const appHealth = true;
     const paymentConfigValid = summary.paymentConfigStatus === PaymentConfigStatus.SIMULATED_READY ||
@@ -241,7 +282,7 @@ export class ControlledPaymentTestService {
         paymentMode: summary.paymentMode,
         liveEnabled: summary.razorpayLiveEnabled,
         optInActive,
-        executedTestCount: this.executedTestCount,
+        executedTestCount: durableCount,
         maxAllowedTests: this.MAX_CONTROLLED_TESTS,
         fixedTestAmount: this.FIXED_TEST_AMOUNT,
         testCurrency: this.FIXED_TEST_CURRENCY,
@@ -268,6 +309,10 @@ export class ControlledPaymentTestService {
    */
   async createControlledTestOrder(actor: any): Promise<ControlledPaymentOrderResult> {
     await this.assertSafetyGates();
+
+    if (this.isGateClosed() || (await this.isGateClosedDurable())) {
+      throw new ConflictException('Controlled production payment test gate is permanently closed or maximum count reached.');
+    }
 
     const testId = `cpt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const bookingId = `bk_cpt_${Date.now()}`;
