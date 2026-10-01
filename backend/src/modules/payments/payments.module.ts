@@ -14,6 +14,7 @@ import { PaymentConfigService } from './payment-config.service';
 import { PaymentService } from './payment.service';
 import { PaymentRecoveryService } from './payment-recovery.service';
 import { PaymentReconciliationService } from './payment-reconciliation.service';
+import { ControlledPaymentTestService } from './controlled-payment-test.service';
 import { RazorpayAdapter } from './providers/razorpay.adapter';
 import { SimulatedPaymentAdapter } from './providers/simulated-payment.adapter';
 import { WebhooksController } from './webhooks.controller';
@@ -42,6 +43,7 @@ import { IdempotencyService } from '../bookings/idempotency.service';
     PaymentService,
     PaymentRecoveryService,
     PaymentReconciliationService,
+    ControlledPaymentTestService,
     RazorpayAdapter,
     SimulatedPaymentAdapter,
     TwilioSmsAdapter,
@@ -52,6 +54,7 @@ import { IdempotencyService } from '../bookings/idempotency.service';
     PaymentService,
     PaymentRecoveryService,
     PaymentReconciliationService,
+    ControlledPaymentTestService,
     RazorpayAdapter,
     SimulatedPaymentAdapter,
     TwilioSmsAdapter,
@@ -59,3 +62,4 @@ import { IdempotencyService } from '../bookings/idempotency.service';
   ],
 })
 export class PaymentsModule {}
+
