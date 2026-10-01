@@ -20,6 +20,8 @@ export class SimulatedPaymentAdapter implements IPaymentProvider {
     { orderId: string; bookingId: string; amount: number; amountInMinorUnits: number; currency: string }
   >();
   private readonly paymentLedger = new Map<string, ProviderPaymentDetails>();
+  private readonly mockErrors = new Map<string, Error>();
+  private readonly mockInvalidResponses = new Map<string, any>();
 
   registerProviderPayment(details: ProviderPaymentDetails): void {
     this.paymentLedger.set(details.paymentId, {
@@ -29,6 +31,25 @@ export class SimulatedPaymentAdapter implements IPaymentProvider {
           ? Math.round(details.amountInMinorUnits)
           : toMinorUnits(details.amount),
     });
+  }
+
+  mockFetchError(paymentId: string, error: Error): void {
+    this.mockErrors.set(paymentId, error);
+  }
+
+  mockFetchInvalidResponse(paymentId: string, invalidData: any): void {
+    this.mockInvalidResponses.set(paymentId, invalidData);
+  }
+
+  clearLedgers(): void {
+    this.orderLedger.clear();
+    this.paymentLedger.clear();
+    this.mockErrors.clear();
+    this.mockInvalidResponses.clear();
+  }
+
+  getStoredOrder(orderId: string) {
+    return this.orderLedger.get(orderId);
   }
 
   async createOrder(options: CreatePaymentOrderOptions): Promise<PaymentOrderResult> {
@@ -65,6 +86,16 @@ export class SimulatedPaymentAdapter implements IPaymentProvider {
       expectedCurrency?: string;
     },
   ): Promise<ProviderPaymentDetails> {
+    const injectedErr = this.mockErrors.get(paymentId);
+    if (injectedErr) {
+      throw injectedErr;
+    }
+
+    const injectedInvalid = this.mockInvalidResponses.get(paymentId);
+    if (injectedInvalid !== undefined) {
+      return injectedInvalid;
+    }
+
     const registered = this.paymentLedger.get(paymentId);
     if (registered) {
       return registered;

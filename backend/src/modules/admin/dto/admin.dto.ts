@@ -142,4 +142,46 @@ export class ResolveRecoveryDto {
   notes?: string;
 }
 
+export class AdminReconciliationQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ example: 'REQUIRED' })
+  @IsOptional()
+  status?: string;
+
+  @ApiPropertyOptional({ example: 'AMOUNT_MISMATCH' })
+  @IsOptional()
+  mismatchCategory?: string;
+
+  @ApiPropertyOptional({ example: 'pay_' })
+  @IsOptional()
+  paymentId?: string;
+
+  @ApiPropertyOptional({ example: 'bk_' })
+  @IsOptional()
+  bookingId?: string;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  requiresManualIntervention?: boolean;
+}
+
+export class ResolveReconciliationDto {
+  @ApiPropertyOptional({ example: 'CONFIRMED_MANUAL_CAPTURE' })
+  @IsOptional()
+  action?: string;
+
+  @ApiPropertyOptional({ example: 'Manually verified gateway settlement' })
+  @IsOptional()
+  notes?: string;
+}
+
+export class TriggerReconcileDto {
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  force?: boolean;
+
+  @ApiPropertyOptional({ example: 'Manual operator audit trigger' })
+  @IsOptional()
+  notes?: string;
+}
+
 

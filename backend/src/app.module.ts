@@ -37,6 +37,7 @@ import { IntegrationMappingEntity } from './database/entities/integration-mappin
 import { IntegrationSyncRunEntity } from './database/entities/integration-sync-run.entity';
 import { SeatLockEntity } from './database/entities/seat-lock.entity';
 import { PaymentRecoveryEntity } from './database/entities/payment-recovery.entity';
+import { PaymentReconciliationEntity } from './database/entities/payment-reconciliation.entity';
 
 import { MoviesModule } from './modules/movies/movies.module';
 import { DiningModule } from './modules/dining/dining.module';
@@ -121,6 +122,7 @@ import { IntegrationsModule } from './modules/integrations/integrations.module';
         IntegrationSyncRunEntity,
         SeatLockEntity,
         PaymentRecoveryEntity,
+        PaymentReconciliationEntity,
       ],
       synchronize:
         process.env.DB_SYNC === 'true' ||

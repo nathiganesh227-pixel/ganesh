@@ -28,6 +28,9 @@ import {
   AdminWebhookQueryDto,
   AdminRecoveryQueryDto,
   ResolveRecoveryDto,
+  AdminReconciliationQueryDto,
+  ResolveReconciliationDto,
+  TriggerReconcileDto,
 } from './dto/admin.dto';
 import {
   CreateMovieDto,
@@ -673,6 +676,60 @@ export class AdminController {
     @Request() req: any,
   ) {
     return this.adminService.resolveRecoveryIncident(id, dto, req.user);
+  }
+
+  // ---------------- PAYMENT RECONCILIATION ----------------
+  @Get('payments/reconciliation')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'List and filter payment reconciliation records' })
+  async getReconciliationRecords(@Query() query: AdminReconciliationQueryDto) {
+    return this.adminService.getReconciliationRecords(query);
+  }
+
+  @Get('payments/reconciliation/summary')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'Get summary metrics of reconciliation records' })
+  async getReconciliationSummary() {
+    return this.adminService.getReconciliationSummary();
+  }
+
+  @Get('payments/reconciliation/:id')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'Get details of a specific reconciliation record' })
+  async getReconciliationById(@Param('id') id: string) {
+    return this.adminService.getReconciliationById(id);
+  }
+
+  @Post('payments/reconciliation/:paymentId/reconcile')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'Trigger reconciliation for a specific canonical payment' })
+  async triggerPaymentReconcile(
+    @Param('paymentId') paymentId: string,
+    @Body() dto: TriggerReconcileDto,
+    @Request() req: any,
+  ) {
+    return this.adminService.triggerPaymentReconcile(paymentId, dto, req.user);
+  }
+
+  @Post('payments/reconciliation/batch')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Trigger batch reconciliation for pending mismatch records' })
+  async triggerBatchReconcile(
+    @Query('limit') limit?: number,
+    @Request() req?: any,
+  ) {
+    return this.adminService.triggerBatchReconcile(limit ? Number(limit) : 20, req?.user);
+  }
+
+  @Post('payments/reconciliation/:id/resolve')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Manually resolve a payment reconciliation record with audit notes' })
+  async resolveReconciliation(
+    @Param('id') id: string,
+    @Body() dto: ResolveReconciliationDto,
+    @Request() req: any,
+  ) {
+    return this.adminService.resolveReconciliation(id, dto, req.user);
   }
 }
 

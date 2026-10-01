@@ -28,8 +28,14 @@ import {
   FailureCategory,
   RecoveryStatus,
 } from '../../database/entities/payment-recovery.entity';
+import {
+  PaymentReconciliationEntity,
+  ReconciliationStatus,
+  ReconciliationMismatchCategory,
+} from '../../database/entities/payment-reconciliation.entity';
 import { PaymentService } from '../payments/payment.service';
 import { PaymentRecoveryService } from '../payments/payment-recovery.service';
+import { PaymentReconciliationService } from '../payments/payment-reconciliation.service';
 import {
   PaymentConfigService,
   PaymentMode,
@@ -45,6 +51,9 @@ import {
   AdminWebhookQueryDto,
   AdminRecoveryQueryDto,
   ResolveRecoveryDto,
+  AdminReconciliationQueryDto,
+  ResolveReconciliationDto,
+  TriggerReconcileDto,
 } from './dto/admin.dto';
 import {
   CreateMovieDto,
@@ -116,6 +125,11 @@ export class AdminService {
     private readonly paymentRecoveryRepo?: Repository<PaymentRecoveryEntity>,
     @Optional()
     private readonly paymentRecoveryService?: PaymentRecoveryService,
+    @Optional()
+    @InjectRepository(PaymentReconciliationEntity)
+    private readonly paymentReconRepo?: Repository<PaymentReconciliationEntity>,
+    @Optional()
+    private readonly paymentReconciliationService?: PaymentReconciliationService,
   ) {}
 
   getHealth() {
@@ -2101,6 +2115,172 @@ export class AdminService {
       rewardPoints: user.rewardPoints,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
+    };
+  }
+
+  // ---------------- PAYMENT RECONCILIATION METHODS ----------------
+
+  async getReconciliationRecords(query: AdminReconciliationQueryDto) {
+    if (!this.paymentReconRepo) {
+      return { total: 0, count: 0, limit: query.limit || 50, offset: query.offset || 0, items: [] };
+    }
+
+    const qb = this.paymentReconRepo.createQueryBuilder('recon');
+
+    if (query.status) {
+      qb.andWhere('recon.status = :status', { status: query.status });
+    }
+    if (query.mismatchCategory) {
+      qb.andWhere('recon.mismatchCategory = :category', { category: query.mismatchCategory });
+    }
+    if (query.paymentId) {
+      qb.andWhere('recon.paymentId = :paymentId', { paymentId: query.paymentId });
+    }
+    if (query.bookingId) {
+      qb.andWhere('recon.bookingId = :bookingId', { bookingId: query.bookingId });
+    }
+    if (query.requiresManualIntervention !== undefined) {
+      qb.andWhere('recon.requiresManualIntervention = :req', {
+        req: String(query.requiresManualIntervention) === 'true',
+      });
+    }
+
+    qb.orderBy('recon.createdAt', 'DESC');
+    const limit = query.limit || 50;
+    const offset = query.offset || 0;
+    qb.take(limit);
+    qb.skip(offset);
+
+    const [items, total] = await qb.getManyAndCount();
+    return {
+      total,
+      count: items.length,
+      limit,
+      offset,
+      items: items.map((r) => this.toSafeReconciliationRecord(r)),
+    };
+  }
+
+  async getReconciliationSummary() {
+    if (this.paymentReconciliationService) {
+      return this.paymentReconciliationService.getReconciliationSummary();
+    }
+    return {
+      totalRecords: 0,
+      resolvedCount: 0,
+      requiredCount: 0,
+      failedCount: 0,
+      manualInterventionCount: 0,
+      mismatchBreakdown: {},
+    };
+  }
+
+  async getReconciliationById(id: string) {
+    if (!this.paymentReconRepo) {
+      throw new NotFoundException('Reconciliation repository not available');
+    }
+    const record = await this.paymentReconRepo.findOne({ where: { id } });
+    if (!record) {
+      throw new NotFoundException(`Reconciliation record ${id} not found`);
+    }
+    return this.toSafeReconciliationRecord(record);
+  }
+
+  async triggerPaymentReconcile(
+    paymentId: string,
+    dto: TriggerReconcileDto,
+    actor: any,
+  ) {
+    if (!this.paymentReconciliationService) {
+      throw new BadRequestException('Payment reconciliation service not configured');
+    }
+
+    const result = await this.paymentReconciliationService.reconcilePayment(paymentId, {
+      force: dto?.force,
+      notes: dto?.notes,
+      actor: actor?.email || 'admin',
+    });
+
+    await this.createAuditRecord(actor, 'TRIGGER_PAYMENT_RECONCILE', 'PaymentReconciliation', result.id, {
+      paymentId,
+      status: result.status,
+      mismatchCategory: result.mismatchCategory,
+      notes: dto?.notes,
+    });
+
+    return this.toSafeReconciliationRecord(result);
+  }
+
+  async resolveReconciliation(
+    id: string,
+    dto: ResolveReconciliationDto,
+    actor: any,
+  ) {
+    if (!this.paymentReconciliationService) {
+      throw new BadRequestException('Payment reconciliation service not configured');
+    }
+
+    const result = await this.paymentReconciliationService.manualResolve(id, {
+      action: dto.action || 'MANUAL_RESOLUTION',
+      notes: dto.notes || 'Manually resolved by administrator',
+      actor: actor?.email || 'admin',
+    });
+
+    await this.createAuditRecord(actor, 'RESOLVE_PAYMENT_RECONCILIATION', 'PaymentReconciliation', id, {
+      action: dto.action,
+      notes: dto.notes,
+      paymentId: result.paymentId,
+    });
+
+    return this.toSafeReconciliationRecord(result);
+  }
+
+  async triggerBatchReconcile(limit = 20, actor?: any) {
+    if (!this.paymentReconciliationService) {
+      throw new BadRequestException('Payment reconciliation service not configured');
+    }
+
+    const summary = await this.paymentReconciliationService.reconcileBatch(limit);
+
+    if (actor) {
+      await this.createAuditRecord(actor, 'TRIGGER_BATCH_RECONCILE', 'PaymentReconciliation', 'batch', {
+        limit,
+        processed: summary.processed,
+        resolved: summary.resolved,
+        failed: summary.failed,
+      });
+    }
+
+    return summary;
+  }
+
+  private toSafeReconciliationRecord(r: PaymentReconciliationEntity) {
+    return {
+      id: r.id,
+      paymentId: r.paymentId,
+      bookingId: r.bookingId || null,
+      quoteId: r.quoteId || null,
+      provider: r.provider,
+      providerPaymentId: r.providerPaymentId || null,
+      providerOrderId: r.providerOrderId || null,
+      canonicalPaymentStatus: r.canonicalPaymentStatus,
+      observedProviderStatus: r.observedProviderStatus || null,
+      canonicalAmount: r.canonicalAmount,
+      canonicalAmountInMinorUnits: r.canonicalAmountInMinorUnits,
+      observedAmountInMinorUnits: r.observedAmountInMinorUnits ?? null,
+      canonicalCurrency: r.canonicalCurrency,
+      observedCurrency: r.observedCurrency || null,
+      mismatchCategory: r.mismatchCategory,
+      status: r.status,
+      attemptCount: r.attemptCount,
+      lastAttemptedAt: r.lastAttemptedAt || null,
+      nextRetryAt: r.nextRetryAt || null,
+      resolvedAt: r.resolvedAt || null,
+      resolutionAction: r.resolutionAction || null,
+      sanitizedResolutionReason: r.sanitizedResolutionReason || null,
+      requiresManualIntervention: r.requiresManualIntervention,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
     };
   }
 }

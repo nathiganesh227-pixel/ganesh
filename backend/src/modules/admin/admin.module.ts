@@ -22,6 +22,7 @@ import { PaymentEntity } from '../../database/entities/payment.entity';
 import { NotificationEntity } from '../../database/entities/notification.entity';
 import { WebhookEventEntity } from '../../database/entities/webhook-event.entity';
 import { PaymentRecoveryEntity } from '../../database/entities/payment-recovery.entity';
+import { PaymentReconciliationEntity } from '../../database/entities/payment-reconciliation.entity';
 import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
@@ -44,6 +45,7 @@ import { PaymentsModule } from '../payments/payments.module';
       NotificationEntity,
       WebhookEventEntity,
       PaymentRecoveryEntity,
+      PaymentReconciliationEntity,
     ]),
     AuthModule,
     PaymentsModule,
