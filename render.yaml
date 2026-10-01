@@ -28,7 +28,11 @@ services:
       - key: JWT_EXPIRES_IN
         value: 7d
       - key: CORS_ORIGIN
-        value: "*"
+        value: "https://plaza.club,https://admin.plaza.club"
+      - key: ENABLE_SWAGGER
+        value: "false"
+      - key: ENABLE_DEMO_LOGIN
+        value: "false"
       - key: PAYMENT_MODE
         value: SIMULATED
       - key: RAZORPAY_LIVE_ENABLED

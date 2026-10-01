@@ -40,29 +40,39 @@ export async function runSeed(customDataSource?: DataSource): Promise<void> {
       console.warn(`⚠️ Migration step notice: ${err?.message || err}`);
     }
 
-  // 1. Users (Idempotent: preserves existing user if already created)
+  // 1. Users (Demo guest user seeded only in development/test or when explicitly enabled)
   const userRepo = ds.getRepository(User);
-  const existingUser = await userRepo.findOne({
-    where: [{ id: 'usr_default_1' }, { email: 'guest@plaza.app' }],
-  });
-  if (!existingUser) {
-    const salt = await bcrypt.genSalt(10);
-    const guestHash = await bcrypt.hash('PlazaGuest123!', salt);
-    await userRepo.save([
-      {
-        id: 'usr_default_1',
-        email: 'guest@plaza.app',
-        passwordHash: guestHash,
-        name: 'Gopi Ganesh',
-        phone: '+91 98765 43210',
-        city: 'Hyderabad',
-        rewardPoints: 2480,
-        role: UserRole.USER,
-      },
-    ]);
-    console.log('  -> Seeded demo user: usr_default_1 (guest@plaza.app)');
+  const nodeEnv = (process.env.NODE_ENV || 'development').toLowerCase();
+  const isDemoEnabled =
+    process.env.ENABLE_DEMO_LOGIN === 'true' ||
+    (process.env.ENABLE_DEMO_LOGIN !== 'false' && (nodeEnv === 'development' || nodeEnv === 'test'));
+
+  if (isDemoEnabled) {
+    const existingUser = await userRepo.findOne({
+      where: [{ id: 'usr_default_1' }, { email: 'guest@plaza.app' }],
+    });
+    if (!existingUser) {
+      const salt = await bcrypt.genSalt(10);
+      const randomDemoSecret = `Demo_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+      const guestHash = await bcrypt.hash(randomDemoSecret, salt);
+      await userRepo.save([
+        {
+          id: 'usr_default_1',
+          email: 'guest@plaza.app',
+          passwordHash: guestHash,
+          name: 'Gopi Ganesh',
+          phone: '+91 98765 43210',
+          city: 'Hyderabad',
+          rewardPoints: 2480,
+          role: UserRole.USER,
+        },
+      ]);
+      console.log('  -> Seeded demo user: usr_default_1 (guest@plaza.app) [Dev/Test Only]');
+    } else {
+      console.log(`  -> Demo user already present (${existingUser.email}), preserved.`);
+    }
   } else {
-    console.log(`  -> Demo user already present (${existingUser.email}), preserved.`);
+    console.log('  -> Demo user seeding skipped (disabled for production/staging).');
   }
 
   // 1b. Admin User (Idempotent: provisions admin@plaza.app with UserRole.ADMIN)
