@@ -6,6 +6,7 @@ import { PaymentEntity } from '../../database/entities/payment.entity';
 import { User } from '../../database/entities/user.entity';
 import { EventEntity } from '../../database/entities/event.entity';
 import { ActivityEntity } from '../../database/entities/activity.entity';
+import { IdempotencyRecordEntity } from '../../database/entities/idempotency-record.entity';
 import { AuthModule } from '../auth/auth.module';
 import { PaymentConfigService } from './payment-config.service';
 import { PaymentService } from './payment.service';
@@ -14,6 +15,7 @@ import { SimulatedPaymentAdapter } from './providers/simulated-payment.adapter';
 import { WebhooksController } from './webhooks.controller';
 import { PaymentsController } from './payments.controller';
 import { TwilioSmsAdapter } from '../notifications/providers/twilio-sms.adapter';
+import { IdempotencyService } from '../bookings/idempotency.service';
 
 @Module({
   imports: [
@@ -24,6 +26,7 @@ import { TwilioSmsAdapter } from '../notifications/providers/twilio-sms.adapter'
       User,
       EventEntity,
       ActivityEntity,
+      IdempotencyRecordEntity,
     ]),
     AuthModule,
   ],
@@ -34,6 +37,7 @@ import { TwilioSmsAdapter } from '../notifications/providers/twilio-sms.adapter'
     RazorpayAdapter,
     SimulatedPaymentAdapter,
     TwilioSmsAdapter,
+    IdempotencyService,
   ],
   exports: [
     PaymentConfigService,
@@ -41,6 +45,7 @@ import { TwilioSmsAdapter } from '../notifications/providers/twilio-sms.adapter'
     RazorpayAdapter,
     SimulatedPaymentAdapter,
     TwilioSmsAdapter,
+    IdempotencyService,
   ],
 })
 export class PaymentsModule {}

@@ -349,11 +349,18 @@ export class BookingsService {
     return item;
   }
 
-  async cancel(id: string, userId?: string): Promise<BookingEntity> {
+  async cancel(
+    id: string,
+    userId?: string,
+    options?: { idempotencyKey?: string; idempotent?: boolean },
+  ): Promise<BookingEntity> {
     const repo = this.dataSource.getRepository(BookingEntity);
     const item = await this.findOne(id, userId);
 
     if (item.status === BookingStatus.CANCELLED) {
+      if (options?.idempotent || options?.idempotencyKey) {
+        return item;
+      }
       throw new BadRequestException('This booking is already cancelled.');
     }
 
@@ -370,6 +377,13 @@ export class BookingsService {
         item.metadata.payment.paymentId,
         item.totalPrice,
         'Booking cancelled by user',
+        {
+          refundOperationId: options?.idempotencyKey
+            ? `refund:cancel:${id}:${options.idempotencyKey}`
+            : undefined,
+          idempotencyKey: options?.idempotencyKey,
+          userId,
+        },
       );
       item.metadata = {
         ...item.metadata,

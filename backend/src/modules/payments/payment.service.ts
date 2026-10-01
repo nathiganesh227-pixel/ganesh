@@ -4,6 +4,8 @@ import {
   BadRequestException,
   ForbiddenException,
   UnauthorizedException,
+  ConflictException,
+  NotFoundException,
   ServiceUnavailableException,
   Optional,
 } from '@nestjs/common';
@@ -11,6 +13,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RazorpayAdapter } from './providers/razorpay.adapter';
 import { SimulatedPaymentAdapter } from './providers/simulated-payment.adapter';
+import { IdempotencyService } from '../bookings/idempotency.service';
 import {
   IPaymentProvider,
   ProviderPaymentDetails,
@@ -87,6 +90,7 @@ export interface CreateServerPaymentOrderInput {
   bookingId?: string;
   userId: string;
   paymentMethod?: string;
+  idempotencyKey?: string;
   // Client-provided financial fields are non-authoritative and validated/ignored for order creation
   clientAmount?: number;
   clientCurrency?: string;
@@ -133,6 +137,8 @@ export class PaymentService {
     private readonly paymentRepo?: Repository<PaymentEntity>,
     @Optional()
     private readonly paymentConfigService?: PaymentConfigService,
+    @Optional()
+    private readonly idempotencyService?: IdempotencyService,
   ) {
     this.configService = this.paymentConfigService ?? new PaymentConfigService();
     const summary = this.configService.validateConfiguration();
@@ -489,6 +495,29 @@ export class PaymentService {
     const expiresAtIso =
       quoteRecord.quote.expiresAt || new Date(quoteRecord.expiresAt).toISOString();
 
+    // Canonical idempotency check via IdempotencyService
+    const requestPayload = {
+      quoteId: input.quoteId,
+      bookingId: input.bookingId,
+      paymentMethod: input.paymentMethod || 'RAZORPAY_CHECKOUT',
+    };
+    const effectiveIdempotencyKey =
+      input.idempotencyKey || `payment:create:${userId}:${quoteRecord.quote.quoteId}`;
+
+    if (this.idempotencyService) {
+      const cached = await this.idempotencyService.get(
+        userId,
+        effectiveIdempotencyKey,
+        requestPayload,
+      );
+      if (cached && (cached as any).idempotentReplay && (cached as any).orderId) {
+        this.logger.log(
+          `[PaymentService] Returning cached idempotent order ${(cached as any).orderId} for key ${effectiveIdempotencyKey}`,
+        );
+        return cached as ServerPaymentOrderResponse;
+      }
+    }
+
     // Check if an existing compatible payment order already exists for this quote/booking
     if (this.paymentRepo) {
       let existing = await this.paymentRepo.findOne({
@@ -530,7 +559,7 @@ export class PaymentService {
             `[PaymentService] Returning existing compatible order ${existing.providerOrderId} for quote ${quoteRecord.quote.quoteId}`,
           );
 
-          return {
+          const existingResponse: ServerPaymentOrderResponse = {
             paymentId: existing.id,
             quoteId: quoteRecord.quote.quoteId,
             bookingId: existing.bookingId,
@@ -551,6 +580,22 @@ export class PaymentService {
             expiresAt: expiresAtIso,
             idempotentReplay: true,
           };
+
+          if (this.idempotencyService) {
+            await this.idempotencyService.save(
+              userId,
+              effectiveIdempotencyKey,
+              '/payments/orders',
+              existingResponse,
+              {
+                requestPayload,
+                operation: 'payment:create',
+                resourceId: existing.id,
+              },
+            );
+          }
+
+          return existingResponse;
         }
       }
     }
@@ -602,7 +647,7 @@ export class PaymentService {
       `[PaymentService] Created payment order ${order.orderId} (paymentId=${paymentId}, quoteId=${quoteRecord.quote.quoteId}, amount=${canonicalAmount} ${canonicalCurrency})`,
     );
 
-    return {
+    const newResponse: ServerPaymentOrderResponse = {
       paymentId,
       quoteId: quoteRecord.quote.quoteId,
       bookingId: effectiveBookingId,
@@ -620,6 +665,22 @@ export class PaymentService {
       expiresAt: expiresAtIso,
       idempotentReplay: false,
     };
+
+    if (this.idempotencyService) {
+      await this.idempotencyService.save(
+        userId,
+        effectiveIdempotencyKey,
+        '/payments/orders',
+        newResponse,
+        {
+          requestPayload,
+          operation: 'payment:create',
+          resourceId: paymentId,
+        },
+      );
+    }
+
+    return newResponse;
   }
 
   /**
@@ -772,6 +833,7 @@ export class PaymentService {
     currency?: string;
     providerStatus?: string;
     secret?: string;
+    idempotencyKey?: string;
   }): Promise<{
     success: boolean;
     idempotentReplay?: boolean;
@@ -793,6 +855,33 @@ export class PaymentService {
     const orderId = options.orderId.trim();
     const paymentId = options.paymentId.trim();
     const signature = options.signature.trim();
+    const effectiveUserId = options.userId || 'usr_default_1';
+
+    const requestPayload = {
+      bookingId: options.bookingId,
+      orderId,
+      paymentId,
+      signature,
+      amount: options.amount,
+      currency: options.currency,
+    };
+
+    const effectiveIdempotencyKey =
+      options.idempotencyKey || `payment:verify:${orderId}:${paymentId}`;
+
+    if (this.idempotencyService) {
+      const cached = await this.idempotencyService.get(
+        effectiveUserId,
+        effectiveIdempotencyKey,
+        requestPayload,
+      );
+      if (cached && (cached as any).idempotentReplay !== undefined) {
+        this.logger.log(
+          `[PaymentService] Returning cached idempotent payment verification for order ${orderId}`,
+        );
+        return cached as any;
+      }
+    }
 
     let paymentRecord: PaymentEntity | undefined;
     if (this.paymentRepo) {
@@ -870,11 +959,25 @@ export class PaymentService {
               `${PaymentErrorCode.INVALID_PAYMENT_SIGNATURE}: Invalid payment signature on replay`,
             );
           }
-          return {
+          const replayResponse = {
             success: true,
             idempotentReplay: true,
             payment: paymentRecord,
           };
+          if (this.idempotencyService) {
+            await this.idempotencyService.save(
+              effectiveUserId,
+              effectiveIdempotencyKey,
+              '/payments/verify',
+              replayResponse,
+              {
+                requestPayload,
+                operation: 'payment:verify',
+                resourceId: paymentRecord.id,
+              },
+            );
+          }
+          return replayResponse;
         }
 
         // Reject terminal states (FAILED, REFUNDED, REFUND_PENDING, CANCELLED)
@@ -1066,7 +1169,27 @@ export class PaymentService {
     this.logger.log(
       `[PaymentService] Payment verified successfully for booking ${options.bookingId} (orderId=${orderId}, paymentId=${paymentId})`,
     );
-    return { success: true, payment: paymentRecord };
+
+    const verificationResult = {
+      success: true,
+      payment: paymentRecord,
+    };
+
+    if (this.idempotencyService) {
+      await this.idempotencyService.save(
+        effectiveUserId,
+        effectiveIdempotencyKey,
+        '/payments/verify',
+        verificationResult,
+        {
+          requestPayload,
+          operation: 'payment:verify',
+          resourceId: paymentRecord?.id || paymentId,
+        },
+      );
+    }
+
+    return verificationResult;
   }
 
   /**
@@ -1127,13 +1250,50 @@ export class PaymentService {
   }
 
   /**
-   * Unified refund processor with active gateway delegation
+   * Unified refund processor with active gateway delegation and full idempotency support.
    */
   async processRefund(
     paymentId: string,
     amount: number,
     reason = 'Booking cancelled by user',
-  ): Promise<RefundResult> {
+    options?: {
+      refundOperationId?: string;
+      idempotencyKey?: string;
+      userId?: string;
+    },
+  ): Promise<RefundResult & { idempotentReplay?: boolean }> {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException(
+        `${PaymentErrorCode.REFUND_AMOUNT_INVALID}: Refund amount must be greater than zero`,
+      );
+    }
+
+    const effectiveUserId = options?.userId || 'usr_default_1';
+    const refundOpId = options?.refundOperationId || options?.idempotencyKey;
+    const effectiveIdempotencyKey =
+      refundOpId || `payment:refund:${paymentId}:${amount}`;
+
+    const requestPayload = {
+      paymentId,
+      amount,
+      reason,
+      refundOperationId: refundOpId,
+    };
+
+    if (this.idempotencyService) {
+      const cached = await this.idempotencyService.get(
+        effectiveUserId,
+        effectiveIdempotencyKey,
+        requestPayload,
+      );
+      if (cached && (cached as any).refundId) {
+        this.logger.log(
+          `[PaymentService] Returning cached idempotent refund ${(cached as any).refundId} for key ${effectiveIdempotencyKey}`,
+        );
+        return { ...(cached as RefundResult), idempotentReplay: true };
+      }
+    }
+
     const activeProvider = this.resolveActiveProvider();
 
     let payment: PaymentEntity | null = null;
@@ -1144,31 +1304,81 @@ export class PaymentService {
         (await this.paymentRepo.findOne({ where: { bookingId: paymentId } }));
 
       if (payment) {
-        if (payment.status === PaymentStatus.CAPTURED) {
-          assertValidPaymentStateTransition(PaymentStatus.CAPTURED, PaymentStatus.REFUND_PENDING);
-          payment.status = PaymentStatus.REFUND_PENDING;
+        const targetAmountPaise = toMinorUnits(amount);
+        const originalAmountPaise = toMinorUnits(payment.amount);
+        const currentRefundedPaise = toMinorUnits(payment.refundAmount || 0);
+
+        // Validate refund balance cannot exceed total payment amount
+        if (currentRefundedPaise + targetAmountPaise > originalAmountPaise) {
+          throw new BadRequestException(
+            `${PaymentErrorCode.REFUND_AMOUNT_INVALID}: Refund amount (${amount}) exceeds remaining refundable balance (${(originalAmountPaise - currentRefundedPaise) / 100})`,
+          );
         }
-        assertValidPaymentStateTransition(payment.status, PaymentStatus.REFUNDED);
+
+        if (
+          payment.status === PaymentStatus.CAPTURED ||
+          payment.status === PaymentStatus.AUTHORIZED
+        ) {
+          assertValidPaymentStateTransition(payment.status, PaymentStatus.REFUND_PENDING);
+          payment.status = PaymentStatus.REFUND_PENDING;
+          await this.paymentRepo.save(payment);
+        } else if (payment.status !== PaymentStatus.REFUND_PENDING) {
+          throw new BadRequestException(
+            `${PaymentErrorCode.INVALID_PAYMENT_STATE_TRANSITION}: Cannot refund payment in ${payment.status} state`,
+          );
+        }
       }
     }
 
     const result = await activeProvider.refund({
-      paymentId,
+      paymentId: payment?.providerPaymentId || paymentId,
       amount,
       reason,
     });
 
     if (this.paymentRepo && payment) {
-      payment.status = PaymentStatus.REFUNDED;
-      payment.refundAmount = amount;
+      const targetAmountPaise = toMinorUnits(amount);
+      const originalAmountPaise = toMinorUnits(payment.amount);
+      const newRefundedPaise = toMinorUnits(payment.refundAmount || 0) + targetAmountPaise;
+
+      if (newRefundedPaise >= originalAmountPaise) {
+        assertValidPaymentStateTransition(PaymentStatus.REFUND_PENDING, PaymentStatus.REFUNDED);
+        payment.status = PaymentStatus.REFUNDED;
+      } else {
+        assertValidPaymentStateTransition(PaymentStatus.REFUND_PENDING, PaymentStatus.CAPTURED);
+        payment.status = PaymentStatus.CAPTURED;
+      }
+
+      payment.refundAmount = (payment.refundAmount || 0) + amount;
       payment.refundId = result.refundId;
       payment.metadata = {
         ...payment.metadata,
         refund: result,
+        refundedAt: new Date().toISOString(),
+        refundOperationId: refundOpId,
       };
       await this.paymentRepo.save(payment);
     }
 
-    return result;
+    const finalResult = {
+      ...result,
+      idempotentReplay: false,
+    };
+
+    if (this.idempotencyService) {
+      await this.idempotencyService.save(
+        effectiveUserId,
+        effectiveIdempotencyKey,
+        '/payments/refund',
+        finalResult,
+        {
+          requestPayload,
+          operation: 'payment:refund',
+          resourceId: payment?.id || paymentId,
+        },
+      );
+    }
+
+    return finalResult;
   }
 }

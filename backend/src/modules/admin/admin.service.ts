@@ -591,13 +591,27 @@ export class AdminService {
     };
   }
 
-  async refundBooking(id: string, dto: RefundBookingDto, actor: any) {
+  async refundBooking(
+    id: string,
+    dto: RefundBookingDto,
+    actor: any,
+    options?: { idempotencyKey?: string; idempotent?: boolean },
+  ) {
     const booking = await this.bookingRepo.findOne({ where: { id } });
     if (!booking) {
       throw new NotFoundException(`Booking with ID ${id} not found`);
     }
 
     if (booking.status === BookingStatus.CANCELLED) {
+      if (options?.idempotent || options?.idempotencyKey) {
+        return {
+          success: true,
+          booking,
+          refundResult: null,
+          message: 'Booking is already cancelled or refunded',
+          idempotentReplay: true,
+        };
+      }
       throw new BadRequestException('Booking is already cancelled or refunded');
     }
 
@@ -612,6 +626,12 @@ export class AdminService {
             payment.providerPaymentId || payment.id,
             payment.amount,
             dto.reason,
+            {
+              refundOperationId: options?.idempotencyKey
+                ? `refund:admin:${id}:${options.idempotencyKey}`
+                : undefined,
+              idempotencyKey: options?.idempotencyKey,
+            },
           );
         } catch (err: any) {
           throw new BadRequestException(`Payment gateway refund failed: ${err?.message || err}`);

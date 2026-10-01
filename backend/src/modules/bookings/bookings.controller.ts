@@ -46,9 +46,15 @@ export class BookingsController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Cancel booking by ID' })
-  async cancel(@Request() req: any, @Param('id') id: string): Promise<BookingEntity> {
+  async cancel(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
+    @Headers('x-idempotency-key') xIdempotencyKey?: string,
+  ): Promise<BookingEntity> {
     const userId = req.user?.sub || req.user?.id || 'usr_default_1';
-    return this.service.cancel(id, userId);
+    const effectiveKey = idempotencyKey || xIdempotencyKey;
+    return this.service.cancel(id, userId, { idempotencyKey: effectiveKey, idempotent: true });
   }
 
   @Post('movie/lock-seats')
@@ -92,13 +98,19 @@ export class BookingsController {
     @Request() req: any,
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Body() body: any,
+    @Headers('x-idempotency-key') xIdempotencyKey?: string,
   ): Promise<BookingEntity> {
     const userId = req.user?.sub || req.user?.id || 'usr_default_1';
-    const cached = await this.idempotencyService.get(userId, idempotencyKey);
+    const effectiveKey = idempotencyKey || xIdempotencyKey || body?.idempotencyKey;
+    const cached = await this.idempotencyService.get(userId, effectiveKey, body);
     if (cached) return cached as BookingEntity;
 
     const result = await this.service.createMovieBooking({ ...body, userId });
-    await this.idempotencyService.save(userId, idempotencyKey, '/bookings/movie', result);
+    await this.idempotencyService.save(userId, effectiveKey, '/bookings/movie', result, {
+      requestPayload: body,
+      operation: 'booking:movie',
+      resourceId: result.id,
+    });
     return result;
   }
 
@@ -110,13 +122,19 @@ export class BookingsController {
     @Request() req: any,
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Body() body: any,
+    @Headers('x-idempotency-key') xIdempotencyKey?: string,
   ): Promise<BookingEntity> {
     const userId = req.user?.sub || req.user?.id || 'usr_default_1';
-    const cached = await this.idempotencyService.get(userId, idempotencyKey);
+    const effectiveKey = idempotencyKey || xIdempotencyKey || body?.idempotencyKey;
+    const cached = await this.idempotencyService.get(userId, effectiveKey, body);
     if (cached) return cached as BookingEntity;
 
     const result = await this.service.createDiningReservation({ ...body, userId });
-    await this.idempotencyService.save(userId, idempotencyKey, '/bookings/dining', result);
+    await this.idempotencyService.save(userId, effectiveKey, '/bookings/dining', result, {
+      requestPayload: body,
+      operation: 'booking:dining',
+      resourceId: result.id,
+    });
     return result;
   }
 
@@ -128,13 +146,19 @@ export class BookingsController {
     @Request() req: any,
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Body() body: any,
+    @Headers('x-idempotency-key') xIdempotencyKey?: string,
   ): Promise<BookingEntity> {
     const userId = req.user?.sub || req.user?.id || 'usr_default_1';
-    const cached = await this.idempotencyService.get(userId, idempotencyKey);
+    const effectiveKey = idempotencyKey || xIdempotencyKey || body?.idempotencyKey;
+    const cached = await this.idempotencyService.get(userId, effectiveKey, body);
     if (cached) return cached as BookingEntity;
 
     const result = await this.service.createSportsBooking({ ...body, userId });
-    await this.idempotencyService.save(userId, idempotencyKey, '/bookings/sports', result);
+    await this.idempotencyService.save(userId, effectiveKey, '/bookings/sports', result, {
+      requestPayload: body,
+      operation: 'booking:sports',
+      resourceId: result.id,
+    });
     return result;
   }
 
@@ -146,13 +170,19 @@ export class BookingsController {
     @Request() req: any,
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Body() body: any,
+    @Headers('x-idempotency-key') xIdempotencyKey?: string,
   ): Promise<BookingEntity> {
     const userId = req.user?.sub || req.user?.id || 'usr_default_1';
-    const cached = await this.idempotencyService.get(userId, idempotencyKey);
+    const effectiveKey = idempotencyKey || xIdempotencyKey || body?.idempotencyKey;
+    const cached = await this.idempotencyService.get(userId, effectiveKey, body);
     if (cached) return cached as BookingEntity;
 
     const result = await this.service.createStayBooking({ ...body, userId });
-    await this.idempotencyService.save(userId, idempotencyKey, '/bookings/stays', result);
+    await this.idempotencyService.save(userId, effectiveKey, '/bookings/stays', result, {
+      requestPayload: body,
+      operation: 'booking:stay',
+      resourceId: result.id,
+    });
     return result;
   }
 
@@ -164,13 +194,19 @@ export class BookingsController {
     @Request() req: any,
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Body() body: any,
+    @Headers('x-idempotency-key') xIdempotencyKey?: string,
   ): Promise<BookingEntity> {
     const userId = req.user?.sub || req.user?.id || 'usr_default_1';
-    const cached = await this.idempotencyService.get(userId, idempotencyKey);
+    const effectiveKey = idempotencyKey || xIdempotencyKey || body?.idempotencyKey;
+    const cached = await this.idempotencyService.get(userId, effectiveKey, body);
     if (cached) return cached as BookingEntity;
 
     const result = await this.service.createShoppingOrder({ ...body, userId });
-    await this.idempotencyService.save(userId, idempotencyKey, '/bookings/shopping', result);
+    await this.idempotencyService.save(userId, effectiveKey, '/bookings/shopping', result, {
+      requestPayload: body,
+      operation: 'booking:shopping',
+      resourceId: result.id,
+    });
     return result;
   }
 
@@ -182,13 +218,19 @@ export class BookingsController {
     @Request() req: any,
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Body() body: any,
+    @Headers('x-idempotency-key') xIdempotencyKey?: string,
   ): Promise<BookingEntity> {
     const userId = req.user?.sub || req.user?.id || 'usr_default_1';
-    const cached = await this.idempotencyService.get(userId, idempotencyKey);
+    const effectiveKey = idempotencyKey || xIdempotencyKey || body?.idempotencyKey;
+    const cached = await this.idempotencyService.get(userId, effectiveKey, body);
     if (cached) return cached as BookingEntity;
 
     const result = await this.service.createEventBooking({ ...body, userId });
-    await this.idempotencyService.save(userId, idempotencyKey, '/bookings/event', result);
+    await this.idempotencyService.save(userId, effectiveKey, '/bookings/event', result, {
+      requestPayload: body,
+      operation: 'booking:event',
+      resourceId: result.id,
+    });
     return result;
   }
 
@@ -200,13 +242,19 @@ export class BookingsController {
     @Request() req: any,
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Body() body: any,
+    @Headers('x-idempotency-key') xIdempotencyKey?: string,
   ): Promise<BookingEntity> {
     const userId = req.user?.sub || req.user?.id || 'usr_default_1';
-    const cached = await this.idempotencyService.get(userId, idempotencyKey);
+    const effectiveKey = idempotencyKey || xIdempotencyKey || body?.idempotencyKey;
+    const cached = await this.idempotencyService.get(userId, effectiveKey, body);
     if (cached) return cached as BookingEntity;
 
     const result = await this.service.createActivityBooking({ ...body, userId });
-    await this.idempotencyService.save(userId, idempotencyKey, '/bookings/activity', result);
+    await this.idempotencyService.save(userId, effectiveKey, '/bookings/activity', result, {
+      requestPayload: body,
+      operation: 'booking:activity',
+      resourceId: result.id,
+    });
     return result;
   }
 }

@@ -3,6 +3,7 @@ import {
   Post,
   Body,
   Request,
+  Headers,
   UseGuards,
   UnauthorizedException,
   ForbiddenException,
@@ -18,6 +19,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaymentService } from './payment.service';
 import { RazorpayAdapter } from './providers/razorpay.adapter';
+import { IdempotencyService } from '../bookings/idempotency.service';
 import {
   PaymentEntity,
   PaymentStatus,
@@ -36,6 +38,7 @@ export class CreatePaymentOrderDto {
   quoteId: string;
   bookingId?: string;
   paymentMethod?: string;
+  idempotencyKey?: string;
   // Informational / non-authoritative client fields (ignored by server for order creation)
   amount?: number;
   price?: number;
@@ -58,6 +61,7 @@ export class VerifyPaymentDto {
   amountInMinorUnits?: number;
   currency?: string;
   providerStatus?: string;
+  idempotencyKey?: string;
 }
 
 export class PaymentFailedDto {
@@ -88,6 +92,8 @@ export class PaymentsController {
     private readonly activityRepo?: Repository<ActivityEntity>,
     @Optional()
     private readonly notificationAdapter?: TwilioSmsAdapter,
+    @Optional()
+    private readonly idempotencyService?: IdempotencyService,
   ) {}
 
   @Post('orders')
@@ -97,7 +103,12 @@ export class PaymentsController {
   @ApiOperation({
     summary: 'Create server-authoritative payment order from canonical quote',
   })
-  async createPaymentOrder(@Body() body: CreatePaymentOrderDto, @Request() req?: any) {
+  async createPaymentOrder(
+    @Body() body: CreatePaymentOrderDto,
+    @Request() req?: any,
+    @Headers('idempotency-key') idempotencyKeyHeader?: string,
+    @Headers('x-idempotency-key') xIdempotencyKeyHeader?: string,
+  ) {
     const jwtUserId = req?.user?.sub || req?.user?.id;
     if (!jwtUserId) {
       throw new UnauthorizedException('Authentication token is required to create a payment order');
@@ -122,6 +133,9 @@ export class PaymentsController {
       }
     }
 
+    const effectiveIdempotencyKey =
+      idempotencyKeyHeader || xIdempotencyKeyHeader || body?.idempotencyKey;
+
     return this.paymentService.createPaymentOrder({
       quoteId: body?.quoteId,
       bookingId: body?.bookingId,
@@ -135,6 +149,7 @@ export class PaymentsController {
       tax: body?.tax,
       fee: body?.fee,
       currency: body?.currency,
+      idempotencyKey: effectiveIdempotencyKey,
     });
   }
 
@@ -143,7 +158,12 @@ export class PaymentsController {
   @ApiOperation({
     summary: 'Cryptographically verify Razorpay checkout completion signature and confirm booking',
   })
-  async verifyPayment(@Body() body: VerifyPaymentDto, @Request() req?: any) {
+  async verifyPayment(
+    @Body() body: VerifyPaymentDto,
+    @Request() req?: any,
+    @Headers('idempotency-key') idempotencyKeyHeader?: string,
+    @Headers('x-idempotency-key') xIdempotencyKeyHeader?: string,
+  ) {
     const {
       bookingId,
       razorpayOrderId,
@@ -184,6 +204,34 @@ export class PaymentsController {
       );
     }
     const effectiveUserId = jwtUserId || body.userId;
+
+    const effectiveIdempotencyKey =
+      idempotencyKeyHeader || xIdempotencyKeyHeader || body.idempotencyKey;
+
+    const requestPayload = {
+      bookingId,
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+      quoteId,
+      amount,
+      amountInMinorUnits,
+      currency,
+    };
+
+    if (this.idempotencyService && effectiveIdempotencyKey) {
+      const cached = await this.idempotencyService.get(
+        effectiveUserId || 'usr_default_1',
+        effectiveIdempotencyKey,
+        requestPayload,
+      );
+      if (cached) {
+        this.logger.log(
+          `[PaymentVerify] Returning cached idempotent verification for booking ${bookingId}`,
+        );
+        return { ...(cached as any), idempotentReplay: true };
+      }
+    }
 
     // 1. Verify HMAC-SHA256 signature using server-side secret
     const isValid = this.razorpayAdapter.verifyPaymentSignature({
@@ -548,12 +596,28 @@ export class PaymentsController {
     this.logger.log(
       `[PaymentVerify] Booking #${bookingId} successfully confirmed via HMAC signature verification`,
     );
-    return {
+    const result = {
       success: true,
       bookingId,
       status: PaymentStatus.CAPTURED,
       booking,
     };
+
+    if (this.idempotencyService && effectiveIdempotencyKey) {
+      await this.idempotencyService.save(
+        effectiveUserId || booking.userId || 'usr_default_1',
+        effectiveIdempotencyKey,
+        '/payments/verify',
+        result,
+        {
+          requestPayload,
+          operation: 'payment:verify',
+          resourceId: bookingId,
+        },
+      );
+    }
+
+    return result;
   }
 
   @Post('failed')

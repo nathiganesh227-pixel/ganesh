@@ -33,6 +33,8 @@ export enum PaymentErrorCode {
   INVALID_PAYMENT_STATE_TRANSITION = 'INVALID_PAYMENT_STATE_TRANSITION',
   RAZORPAY_LIVE_DISABLED = 'RAZORPAY_LIVE_DISABLED',
   RAZORPAY_MISCONFIGURED = 'RAZORPAY_MISCONFIGURED',
+  REFUND_AMOUNT_INVALID = 'REFUND_AMOUNT_INVALID',
+  REFUND_FAILED = 'REFUND_FAILED',
 }
 
 /**
@@ -64,6 +66,7 @@ export const VALID_PAYMENT_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> =
   ],
   [PaymentStatus.REFUND_PENDING]: [
     PaymentStatus.REFUNDED,
+    PaymentStatus.CAPTURED,
   ],
   [PaymentStatus.REFUNDED]: [],
   [PaymentStatus.FAILED]: [],
