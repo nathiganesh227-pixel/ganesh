@@ -31,6 +31,8 @@ import {
   AdminReconciliationQueryDto,
   ResolveReconciliationDto,
   TriggerReconcileDto,
+  AdminUnifiedIncidentQueryDto,
+  ResolveUnifiedIncidentDto,
 } from './dto/admin.dto';
 import {
   CreateMovieDto,
@@ -145,9 +147,27 @@ export class AdminController {
   // ---------------- INCIDENTS OPERATIONS ----------------
   @Get(['incidents', 'operations/incidents'])
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
-  @ApiOperation({ summary: 'List operational incidents and failure records' })
-  async getIncidents(@Query() query: PaginationQueryDto) {
-    return this.adminService.getIncidents(query.limit, query.offset);
+  @ApiOperation({ summary: 'List and query unified operational incidents (recovery, reconciliation, webhooks)' })
+  async getIncidents(@Query() query: AdminUnifiedIncidentQueryDto) {
+    return this.adminService.getUnifiedIncidents(query);
+  }
+
+  @Get(['incidents/:id', 'operations/incidents/:id'])
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'Get unified incident details with full linked timeline and entities' })
+  async getIncidentById(@Param('id') id: string) {
+    return this.adminService.getUnifiedIncidentById(id);
+  }
+
+  @Post('incidents/:id/resolve')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Manually resolve an operational incident with validation enforcement' })
+  async resolveUnifiedIncident(
+    @Param('id') id: string,
+    @Body() dto: ResolveUnifiedIncidentDto,
+    @Request() req: any,
+  ) {
+    return this.adminService.resolveUnifiedIncident(id, dto, req.user);
   }
 
   // ---------------- USER MANAGEMENT ----------------
@@ -679,6 +699,13 @@ export class AdminController {
   }
 
   // ---------------- PAYMENT RECONCILIATION ----------------
+  @Get(['payments/reconciliation/dashboard', 'operations/reconciliation-dashboard'])
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'Reconciliation and incident metrics dashboard' })
+  async getReconciliationDashboard() {
+    return this.adminService.getReconciliationDashboard();
+  }
+
   @Get('payments/reconciliation')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.OPERATOR)
   @ApiOperation({ summary: 'List and filter payment reconciliation records' })

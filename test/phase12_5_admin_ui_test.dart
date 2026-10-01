@@ -399,6 +399,88 @@ class MockAdminRepository implements AdminRepository {
   Future<ApiResponse<dynamic>> triggerIntegrationSync(String providerId, {String? vertical}) async {
     return ApiResponse.success({'triggered': true, 'providerId': providerId});
   }
+
+  // Phase 25.7 Stubs
+  @override
+  Future<ApiResponse<ReconciliationDashboardData>> getReconciliationDashboard() async {
+    return ApiResponse.success(const ReconciliationDashboardData(
+      reconciliation: {'required': 0, 'inProgress': 0, 'resolved': 5, 'failed': 0, 'notRequired': 10},
+      recovery: {'required': 0, 'inProgress': 0, 'resolved': 2, 'failed': 0},
+      webhooks: {'received': 0, 'processing': 0, 'processed': 15, 'failed': 0, 'ignored': 0},
+      mismatches: {'NO_MISMATCH': 15},
+      manualInterventionRequired: 0,
+      paymentConfig: {'paymentMode': 'SIMULATED', 'razorpayLiveEnabled': false, 'status': 'SIMULATED_SAFE'},
+    ));
+  }
+
+  @override
+  Future<ApiResponse<List<ReconciliationRecordItem>>> getReconciliationRecords({
+    String? status,
+    String? mismatchCategory,
+    String? paymentId,
+    String? bookingId,
+    bool? requiresManualIntervention,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    return ApiResponse.success([]);
+  }
+
+  @override
+  Future<ApiResponse<ReconciliationDetailData>> getReconciliationDetails(String id) async {
+    return ApiResponse.failure('Not found');
+  }
+
+  @override
+  Future<ApiResponse<ReconciliationRecordItem>> triggerReconcile(String paymentId, {bool? force, String? notes}) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<ApiResponse<dynamic>> triggerBatchReconcile({int limit = 20}) async {
+    return ApiResponse.success({'processed': 0, 'resolved': 0, 'failed': 0});
+  }
+
+  @override
+  Future<ApiResponse<ReconciliationRecordItem>> resolveReconciliation(
+    String id, {
+    String? action,
+    String? notes,
+    String? targetPaymentStatus,
+    String? targetBookingStatus,
+  }) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<ApiResponse<List<UnifiedIncidentItem>>> getUnifiedIncidents({
+    String? type,
+    String? status,
+    String? severity,
+    bool? requiresManualIntervention,
+    String? search,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    return ApiResponse.success([]);
+  }
+
+  @override
+  Future<ApiResponse<Map<String, dynamic>>> getUnifiedIncidentDetails(String id) async {
+    return ApiResponse.success({});
+  }
+
+  @override
+  Future<ApiResponse<dynamic>> resolveUnifiedIncident(
+    String id, {
+    String? action,
+    String? notes,
+    bool? force,
+    String? targetPaymentStatus,
+    String? targetBookingStatus,
+  }) async {
+    return ApiResponse.success({'resolved': true});
+  }
 }
 
 void main() {

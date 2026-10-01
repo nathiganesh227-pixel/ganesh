@@ -16,11 +16,11 @@ import { ActivityEntity } from '../../database/entities/activity.entity';
 import { ProductEntity } from '../../database/entities/product.entity';
 import { HotelEntity } from '../../database/entities/hotel.entity';
 import { SportsVenueEntity } from '../../database/entities/sports-venue.entity';
-import { BookingEntity, BookingStatus, BookingType } from '../../database/entities/booking.entity';
+import { BookingEntity, BookingStatus, BookingType, VALID_BOOKING_TRANSITIONS } from '../../database/entities/booking.entity';
 import { AuditLogEntity } from '../../database/entities/audit-log.entity';
 import { ScreenEntity } from '../../database/entities/screen.entity';
 import { ShowEntity } from '../../database/entities/show.entity';
-import { PaymentEntity, PaymentStatus } from '../../database/entities/payment.entity';
+import { PaymentEntity, PaymentStatus, assertValidPaymentStateTransition, isValidPaymentStateTransition, toMinorUnits } from '../../database/entities/payment.entity';
 import { NotificationEntity } from '../../database/entities/notification.entity';
 import { WebhookEventEntity } from '../../database/entities/webhook-event.entity';
 import {
@@ -54,6 +54,8 @@ import {
   AdminReconciliationQueryDto,
   ResolveReconciliationDto,
   TriggerReconcileDto,
+  AdminUnifiedIncidentQueryDto,
+  ResolveUnifiedIncidentDto,
 } from './dto/admin.dto';
 import {
   CreateMovieDto,
@@ -560,10 +562,12 @@ export class AdminService {
     const [user, payment, auditLogs] = await Promise.all([
       this.userRepo.findOne({ where: { id: booking.userId } }),
       this.paymentRepo ? this.paymentRepo.findOne({ where: { bookingId: booking.id } }) : Promise.resolve(null),
-      this.auditLogRepo.find({
-        where: { resourceType: 'Booking', resourceId: id },
-        order: { createdAt: 'DESC' },
-      }),
+      this.auditLogRepo && typeof this.auditLogRepo.find === 'function'
+        ? this.auditLogRepo.find({
+            where: { resourceType: 'Booking', resourceId: id },
+            order: { createdAt: 'DESC' },
+          })
+        : Promise.resolve([]),
     ]);
 
     const meta = booking.metadata || {};
@@ -882,55 +886,511 @@ export class AdminService {
 
   // ---------------- INCIDENTS / OPERATIONAL ERRORS ----------------
   async getIncidents(limit = 50, offset = 0) {
-    const failedPayments = this.paymentRepo
-      ? await this.paymentRepo.find({
-          where: { status: PaymentStatus.FAILED },
-          take: limit,
-          order: { updatedAt: 'DESC' },
-        })
-      : [];
+    return this.getUnifiedIncidents({ limit, offset });
+  }
 
-    const failedBookings = this.bookingRepo
-      ? await this.bookingRepo.find({
-          where: { status: BookingStatus.FAILED },
-          take: limit,
-          order: { updatedAt: 'DESC' },
-        })
-      : [];
+  async getUnifiedIncidents(query: AdminUnifiedIncidentQueryDto = {}) {
+    const typeFilter = query.type ? query.type.toUpperCase() : 'ALL';
+    const incidents: any[] = [];
 
-    const incidents = [
-      ...failedPayments.map((p) => ({
-        id: `inc_pay_${p.id}`,
-        correlationId: p.providerOrderId || p.id,
-        severity: 'HIGH',
-        source: 'PAYMENT_GATEWAY',
-        title: `Payment Failure: ₹${p.amount}`,
-        message: p.failureReason || 'Payment authorization or capture failed at gateway',
-        resourceType: 'Payment',
-        resourceId: p.id,
-        bookingId: p.bookingId,
-        timestamp: p.updatedAt,
-      })),
-      ...failedBookings.map((b) => ({
-        id: `inc_bk_${b.id}`,
-        correlationId: b.id,
-        severity: 'MEDIUM',
-        source: 'BOOKING_ENGINE',
-        title: `Booking Execution Failure: ${b.title}`,
-        message: `Booking failed: status=${b.status}`,
-        resourceType: 'Booking',
-        resourceId: b.id,
-        bookingId: b.id,
-        timestamp: b.updatedAt,
-      })),
-    ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    // 1. Recovery incidents
+    if (typeFilter === 'ALL' || typeFilter === 'RECOVERY') {
+      if (this.paymentRecoveryRepo) {
+        let recs: PaymentRecoveryEntity[] = [];
+        if (this.paymentRecoveryRepo.createQueryBuilder) {
+          const recQuery = this.paymentRecoveryRepo.createQueryBuilder('rec');
+          if (query.status) {
+            recQuery.andWhere('rec.recoveryStatus = :status', { status: query.status });
+          }
+          if (query.requiresManualIntervention !== undefined) {
+            recQuery.andWhere('rec.requiresManualIntervention = :req', {
+              req: String(query.requiresManualIntervention) === 'true',
+            });
+          }
+          recs = await recQuery.getMany();
+        } else {
+          recs = typeof this.paymentRecoveryRepo.find === 'function' ? await this.paymentRecoveryRepo.find() : [];
+        }
+
+        for (const r of recs) {
+          let sev = 'MEDIUM';
+          if (r.recoveryStatus === RecoveryStatus.FAILED) sev = 'CRITICAL';
+          else if (r.requiresManualIntervention) sev = 'HIGH';
+
+          if (query.severity && sev !== query.severity.toUpperCase()) continue;
+          if (query.status && r.recoveryStatus !== query.status) continue;
+          if (query.requiresManualIntervention !== undefined && r.requiresManualIntervention !== (String(query.requiresManualIntervention) === 'true')) continue;
+
+          incidents.push({
+            id: r.id,
+            type: 'RECOVERY',
+            source: 'PAYMENT_GATEWAY',
+            correlationId: r.providerOrderId || r.bookingId || r.paymentId || r.id,
+            title: `Payment Recovery: ${r.failureCategory || 'Incident'}`,
+            message: r.safeFailureReason || r.resolutionNotes || `Recovery incident for payment ${r.paymentId}`,
+            description: r.safeFailureReason || r.resolutionNotes || `Recovery incident for payment ${r.paymentId}`,
+            status: r.recoveryStatus,
+            severity: sev,
+            referenceId: r.bookingId || r.paymentId,
+            paymentId: r.paymentId,
+            bookingId: r.bookingId,
+            failureCategory: r.failureCategory,
+            requiresManualIntervention: r.requiresManualIntervention,
+            createdAt: r.createdAt,
+            updatedAt: r.updatedAt,
+            resolvedAt: r.resolvedAt || null,
+          });
+        }
+      }
+    }
+
+    // 2. Reconciliation incidents
+    if (typeFilter === 'ALL' || typeFilter === 'RECONCILIATION') {
+      if (this.paymentReconRepo) {
+        let recons: PaymentReconciliationEntity[] = [];
+        if (this.paymentReconRepo.createQueryBuilder) {
+          const reconQuery = this.paymentReconRepo.createQueryBuilder('recon');
+          if (query.status) {
+            reconQuery.andWhere('recon.status = :status', { status: query.status });
+          }
+          if (query.requiresManualIntervention !== undefined) {
+            reconQuery.andWhere('recon.requiresManualIntervention = :req', {
+              req: String(query.requiresManualIntervention) === 'true',
+            });
+          }
+          recons = await reconQuery.getMany();
+        } else {
+          recons = typeof this.paymentReconRepo.find === 'function' ? await this.paymentReconRepo.find() : [];
+        }
+
+        for (const r of recons) {
+          let sev = 'MEDIUM';
+          if (r.status === ReconciliationStatus.FAILED) sev = 'CRITICAL';
+          else if (r.requiresManualIntervention) sev = 'HIGH';
+          else if (r.mismatchCategory === ReconciliationMismatchCategory.NO_MISMATCH) sev = 'LOW';
+
+          if (query.severity && sev !== query.severity.toUpperCase()) continue;
+          if (query.status && r.status !== query.status) continue;
+          if (query.requiresManualIntervention !== undefined && r.requiresManualIntervention !== (String(query.requiresManualIntervention) === 'true')) continue;
+
+          incidents.push({
+            id: r.id,
+            type: 'RECONCILIATION',
+            source: 'RECONCILIATION_ENGINE',
+            correlationId: r.providerOrderId || r.paymentId || r.id,
+            title: `Reconciliation: ${r.mismatchCategory}`,
+            message: r.sanitizedResolutionReason || `Discrepancy category ${r.mismatchCategory} for payment ${r.paymentId}`,
+            description: r.sanitizedResolutionReason || `Discrepancy category ${r.mismatchCategory} for payment ${r.paymentId}`,
+            status: r.status,
+            severity: sev,
+            referenceId: r.paymentId,
+            paymentId: r.paymentId,
+            bookingId: r.bookingId || null,
+            mismatchCategory: r.mismatchCategory,
+            requiresManualIntervention: r.requiresManualIntervention,
+            createdAt: r.createdAt,
+            updatedAt: r.updatedAt,
+            resolvedAt: r.resolvedAt || null,
+          });
+        }
+      }
+    }
+
+    // 3. Webhook events (anomalies / failed or queried explicitly)
+    if (typeFilter === 'ALL' || typeFilter === 'WEBHOOK') {
+      if (this.webhookEventRepo) {
+        let whs: WebhookEventEntity[] = [];
+        if (this.webhookEventRepo.createQueryBuilder) {
+          const whQuery = this.webhookEventRepo.createQueryBuilder('wh');
+          if (typeFilter === 'ALL') {
+            whQuery.andWhere('wh.status IN (:...statuses)', { statuses: ['FAILED', 'IGNORED'] });
+          } else if (query.status) {
+            whQuery.andWhere('wh.status = :status', { status: query.status });
+          }
+          whs = await whQuery.getMany();
+        } else {
+          whs = typeof this.webhookEventRepo.find === 'function' ? await this.webhookEventRepo.find() : [];
+        }
+
+        for (const w of whs) {
+          if (typeFilter === 'ALL' && w.status !== 'FAILED' && w.status !== 'IGNORED') continue;
+          if (query.status && w.status !== query.status) continue;
+
+          const sev = w.status === 'FAILED' ? 'HIGH' : 'LOW';
+          if (query.severity && sev !== query.severity.toUpperCase()) continue;
+          const reqManual = w.status === 'FAILED';
+          if (query.requiresManualIntervention !== undefined && reqManual !== (String(query.requiresManualIntervention) === 'true')) {
+            continue;
+          }
+
+          incidents.push({
+            id: w.id,
+            type: 'WEBHOOK',
+            source: 'GATEWAY_WEBHOOK',
+            correlationId: w.providerOrderId || w.providerPaymentId || w.id,
+            title: `Webhook: ${w.eventType || 'Event'}`,
+            message: w.failureReason || `Webhook ${w.id} for provider payment ${w.providerPaymentId || 'N/A'}`,
+            description: w.failureReason || `Webhook ${w.id} for provider payment ${w.providerPaymentId || 'N/A'}`,
+            status: w.status,
+            severity: sev,
+            referenceId: w.providerPaymentId || w.providerOrderId || w.id,
+            paymentId: null,
+            bookingId: null,
+            failureCategory: w.status === 'FAILED' ? 'WEBHOOK_FAILURE' : undefined,
+            requiresManualIntervention: reqManual,
+            createdAt: w.receivedAt,
+            updatedAt: w.updatedAt,
+            resolvedAt: null,
+          });
+        }
+      }
+    }
+
+    // 4. Failed payments from paymentRepo (if not already captured in recovery)
+    if (typeFilter === 'ALL' || typeFilter === 'RECOVERY') {
+      if (this.paymentRepo) {
+        let failedPayments: PaymentEntity[] = [];
+        if (this.paymentRepo.createQueryBuilder) {
+          failedPayments = await this.paymentRepo
+            .createQueryBuilder('payment')
+            .where('payment.status = :status', { status: PaymentStatus.FAILED })
+            .getMany();
+        } else if (typeof this.paymentRepo.find === 'function') {
+          failedPayments = await this.paymentRepo.find({ where: { status: PaymentStatus.FAILED } });
+        }
+
+        const existingPaymentIds = new Set(incidents.map((i) => i.paymentId).filter(Boolean));
+        for (const p of failedPayments) {
+          if (existingPaymentIds.has(p.id)) continue;
+          if (query.status && query.status !== 'FAILED') continue;
+
+          incidents.push({
+            id: `inc_pay_${p.id}`,
+            type: 'RECOVERY',
+            source: 'PAYMENT_GATEWAY',
+            correlationId: p.providerOrderId || p.id,
+            title: `Payment Failure: ₹${p.amount}`,
+            message: p.failureReason || 'Card issuer authentication timed out',
+            description: p.failureReason || 'Payment authorization or capture failed at gateway',
+            status: PaymentStatus.FAILED,
+            severity: 'HIGH',
+            referenceId: p.providerOrderId || p.id,
+            paymentId: p.id,
+            bookingId: p.bookingId || null,
+            failureCategory: 'PAYMENT_FAILED',
+            requiresManualIntervention: true,
+            createdAt: p.createdAt || p.updatedAt || new Date(),
+            updatedAt: p.updatedAt || new Date(),
+            resolvedAt: null,
+          });
+        }
+      }
+    }
+
+    // Filter by search string
+    let filtered = incidents;
+    if (query.search) {
+      const s = query.search.toLowerCase();
+      filtered = filtered.filter((inc) =>
+        (inc.id && String(inc.id).toLowerCase().includes(s)) ||
+        (inc.title && String(inc.title).toLowerCase().includes(s)) ||
+        (inc.referenceId && String(inc.referenceId).toLowerCase().includes(s)) ||
+        (inc.paymentId && String(inc.paymentId).toLowerCase().includes(s)) ||
+        (inc.bookingId && String(inc.bookingId).toLowerCase().includes(s)) ||
+        (inc.description && String(inc.description).toLowerCase().includes(s))
+      );
+    }
+
+    // Sort by createdAt DESC
+    filtered.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+    const limit = query.limit || 50;
+    const offset = query.offset || 0;
+    const paginated = filtered.slice(offset, offset + limit);
 
     return {
-      total: incidents.length,
+      total: filtered.length,
+      count: paginated.length,
       limit,
       offset,
-      incidents: incidents.slice(offset, offset + limit),
+      incidents: paginated,
     };
+  }
+
+  async getUnifiedIncidentById(id: string) {
+    let recovery: PaymentRecoveryEntity | null = null;
+    let recon: PaymentReconciliationEntity | null = null;
+    let webhook: WebhookEventEntity | null = null;
+
+    if (this.paymentRecoveryRepo) {
+      recovery = await this.paymentRecoveryRepo.findOne({ where: { id } });
+    }
+    if (!recovery && this.paymentReconRepo) {
+      recon = await this.paymentReconRepo.findOne({ where: { id } });
+    }
+    if (!recovery && !recon && this.webhookEventRepo) {
+      webhook = await this.webhookEventRepo.findOne({ where: { id } });
+    }
+
+    if (!recovery && !recon && !webhook) {
+      throw new NotFoundException(`Incident with ID ${id} not found`);
+    }
+
+    const paymentId = recovery?.paymentId || recon?.paymentId || null;
+    const bookingId = recovery?.bookingId || recon?.bookingId || null;
+
+    const payment = paymentId && this.paymentRepo ? await this.paymentRepo.findOne({ where: { id: paymentId } }) : null;
+
+    const [booking, auditLogs, linkedWebhooks, linkedRecovery, linkedRecon] = await Promise.all([
+      bookingId && this.bookingRepo ? this.bookingRepo.findOne({ where: { id: bookingId } }) : Promise.resolve(null),
+      this.auditLogRepo && typeof this.auditLogRepo.find === 'function'
+        ? this.auditLogRepo.find({
+            where: [
+              { resourceId: id },
+              ...(paymentId ? [{ resourceId: paymentId }] : []),
+              ...(bookingId ? [{ resourceId: bookingId }] : []),
+            ],
+            order: { createdAt: 'ASC' },
+          })
+        : Promise.resolve([]),
+      this.webhookEventRepo && typeof this.webhookEventRepo.find === 'function'
+        ? this.webhookEventRepo.find({
+            where: [
+              ...(payment?.providerPaymentId ? [{ providerPaymentId: payment.providerPaymentId }] : []),
+              ...(payment?.providerOrderId ? [{ providerOrderId: payment.providerOrderId }] : []),
+            ],
+          })
+        : Promise.resolve([]),
+      !recovery && paymentId && this.paymentRecoveryRepo
+        ? this.paymentRecoveryRepo.findOne({ where: { paymentId } })
+        : Promise.resolve(recovery),
+      !recon && paymentId && this.paymentReconRepo
+        ? this.paymentReconRepo.findOne({ where: { paymentId } })
+        : Promise.resolve(recon),
+    ]);
+
+    // Build synthetic operational timeline
+    const timeline: Array<{
+      timestamp: Date;
+      event: string;
+      actor?: string;
+      status?: string;
+      description?: string;
+      metadata?: any;
+    }> = [];
+
+    if (booking) {
+      timeline.push({
+        timestamp: booking.createdAt,
+        event: 'BOOKING_CREATED',
+        actor: 'customer',
+        status: booking.status,
+        description: `Booking ${booking.id} created for ${booking.title}`,
+      });
+    }
+
+    if (payment) {
+      timeline.push({
+        timestamp: payment.createdAt,
+        event: 'PAYMENT_CREATED',
+        actor: 'system',
+        status: payment.status,
+        description: `Payment intent created with amount ${payment.amount} ${payment.currency}`,
+      });
+      if (payment.updatedAt && new Date(payment.updatedAt).getTime() !== new Date(payment.createdAt).getTime()) {
+        timeline.push({
+          timestamp: payment.updatedAt,
+          event: `PAYMENT_${payment.status}`,
+          actor: 'system',
+          status: payment.status,
+          description: `Payment status transitioned to ${payment.status}`,
+        });
+      }
+    }
+
+    for (const wh of linkedWebhooks) {
+      timeline.push({
+        timestamp: wh.receivedAt,
+        event: `WEBHOOK_RECEIVED: ${wh.eventType}`,
+        actor: 'gateway_webhook',
+        status: wh.status,
+        description: `Webhook received for provider event ${wh.id}`,
+      });
+    }
+
+    if (linkedRecovery) {
+      timeline.push({
+        timestamp: linkedRecovery.createdAt,
+        event: `RECOVERY_TRIGGERED: ${linkedRecovery.failureCategory}`,
+        actor: 'system_recovery',
+        status: linkedRecovery.recoveryStatus,
+        description: linkedRecovery.safeFailureReason || 'Payment recovery state machine activated',
+      });
+      if (linkedRecovery.resolvedAt) {
+        timeline.push({
+          timestamp: linkedRecovery.resolvedAt,
+          event: 'RECOVERY_RESOLVED',
+          actor: 'operator',
+          status: linkedRecovery.recoveryStatus,
+          description: linkedRecovery.resolutionNotes || 'Recovery incident marked resolved',
+        });
+      }
+    }
+
+    if (linkedRecon) {
+      timeline.push({
+        timestamp: linkedRecon.createdAt,
+        event: `RECONCILIATION_EVALUATED: ${linkedRecon.mismatchCategory}`,
+        actor: 'reconciliation_engine',
+        status: linkedRecon.status,
+        description: `Reconciliation evaluated discrepancy: ${linkedRecon.mismatchCategory}`,
+      });
+      if (linkedRecon.resolvedAt) {
+        timeline.push({
+          timestamp: linkedRecon.resolvedAt,
+          event: 'RECONCILIATION_RESOLVED',
+          actor: 'operator',
+          status: linkedRecon.status,
+          description: linkedRecon.sanitizedResolutionReason || 'Discrepancy resolved',
+        });
+      }
+    }
+
+    for (const log of auditLogs) {
+      timeline.push({
+        timestamp: log.createdAt,
+        event: log.action,
+        actor: log.actorEmail,
+        description: `Admin action ${log.action} performed`,
+        metadata: log.metadata,
+      });
+    }
+
+    timeline.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    let incidentType = 'RECOVERY';
+    let title = 'Operational Incident';
+    let description = '';
+    let status = 'UNKNOWN';
+    let severity = 'MEDIUM';
+    let requiresManualIntervention = false;
+
+    if (recovery) {
+      incidentType = 'RECOVERY';
+      title = `Payment Recovery: ${recovery.failureCategory}`;
+      description = recovery.safeFailureReason || 'Recovery incident';
+      status = recovery.recoveryStatus;
+      severity = recovery.recoveryStatus === 'FAILED' ? 'CRITICAL' : recovery.requiresManualIntervention ? 'HIGH' : 'MEDIUM';
+      requiresManualIntervention = recovery.requiresManualIntervention;
+    } else if (recon) {
+      incidentType = 'RECONCILIATION';
+      title = `Reconciliation: ${recon.mismatchCategory}`;
+      description = recon.sanitizedResolutionReason || 'Reconciliation incident';
+      status = recon.status;
+      severity = recon.status === 'FAILED' ? 'CRITICAL' : recon.requiresManualIntervention ? 'HIGH' : 'MEDIUM';
+      requiresManualIntervention = recon.requiresManualIntervention;
+    } else if (webhook) {
+      incidentType = 'WEBHOOK';
+      title = `Webhook: ${webhook.eventType}`;
+      description = webhook.failureReason || 'Webhook event';
+      status = webhook.status;
+      severity = webhook.status === 'FAILED' ? 'HIGH' : 'LOW';
+      requiresManualIntervention = webhook.status === 'FAILED';
+    }
+
+    return {
+      id,
+      type: incidentType,
+      title,
+      description,
+      status,
+      severity,
+      requiresManualIntervention,
+      paymentId,
+      bookingId,
+      payment: payment ? {
+        id: payment.id,
+        amount: payment.amount,
+        currency: payment.currency,
+        status: payment.status,
+        provider: payment.provider,
+        providerOrderId: payment.providerOrderId || null,
+        providerPaymentId: payment.providerPaymentId || null,
+        failureReason: payment.failureReason || null,
+        refundAmount: payment.refundAmount || 0,
+        createdAt: payment.createdAt,
+        updatedAt: payment.updatedAt,
+      } : null,
+      booking: booking ? {
+        id: booking.id,
+        title: booking.title,
+        type: booking.type,
+        status: booking.status,
+        totalPrice: booking.totalPrice,
+        createdAt: booking.createdAt,
+      } : null,
+      recovery: linkedRecovery ? this.toSafeRecoveryRecord(linkedRecovery) : null,
+      reconciliation: linkedRecon ? this.toSafeReconciliationRecord(linkedRecon) : null,
+      webhooks: linkedWebhooks.map((w) => ({
+        id: w.id,
+        eventType: w.eventType,
+        status: w.status,
+        receivedAt: w.receivedAt,
+      })),
+      timeline,
+      auditLogs,
+    };
+  }
+
+  async resolveUnifiedIncident(id: string, dto: ResolveUnifiedIncidentDto, actor: any) {
+    let isRecovery = false;
+    let isRecon = false;
+    let isWebhook = false;
+
+    if (this.paymentRecoveryRepo) {
+      const rec = await this.paymentRecoveryRepo.findOne({ where: { id } });
+      if (rec) isRecovery = true;
+    }
+    if (!isRecovery && this.paymentReconRepo) {
+      const recon = await this.paymentReconRepo.findOne({ where: { id } });
+      if (recon) isRecon = true;
+    }
+    if (!isRecovery && !isRecon && this.webhookEventRepo) {
+      const wh = await this.webhookEventRepo.findOne({ where: { id } });
+      if (wh) isWebhook = true;
+    }
+
+    if (!isRecovery && !isRecon && !isWebhook) {
+      throw new NotFoundException(`Incident with ID ${id} not found`);
+    }
+
+    if (isRecovery) {
+      return this.resolveRecoveryIncident(id, { notes: dto.notes }, actor);
+    }
+
+    if (isRecon) {
+      return this.resolveReconciliation(
+        id,
+        {
+          action: dto.action,
+          notes: dto.notes,
+          targetPaymentStatus: dto.targetPaymentStatus,
+          targetBookingStatus: dto.targetBookingStatus,
+        },
+        actor,
+      );
+    }
+
+    if (isWebhook) {
+      const wh = await this.webhookEventRepo!.findOne({ where: { id } });
+      if (!wh) throw new NotFoundException(`Webhook event ${id} not found`);
+      wh.status = 'PROCESSED';
+      await this.webhookEventRepo!.save(wh);
+      await this.createAuditRecord(actor, 'RESOLVE_WEBHOOK_INCIDENT', 'WebhookEvent', id, {
+        notes: dto.notes,
+      });
+      return { success: true, id, status: 'PROCESSED', notes: dto.notes };
+    }
   }
 
   // ---------------- USER MANAGEMENT ----------------
@@ -1914,11 +2374,13 @@ export class AdminService {
     }
 
     if (!this.webhookEventRepo.createQueryBuilder) {
-      const all = await this.webhookEventRepo.find({
-        take: limit,
-        skip: offset,
-        order: { receivedAt: 'DESC' },
-      });
+      const all = typeof this.webhookEventRepo.find === 'function'
+        ? await this.webhookEventRepo.find({
+            take: limit,
+            skip: offset,
+            order: { receivedAt: 'DESC' },
+          })
+        : [];
       return all.map(this.toSafeWebhookEvent);
     }
 
@@ -1976,7 +2438,7 @@ export class AdminService {
     }
 
     if (!this.paymentRecoveryRepo.createQueryBuilder) {
-      const records = await this.paymentRecoveryRepo.find();
+      const records = typeof this.paymentRecoveryRepo.find === 'function' ? await this.paymentRecoveryRepo.find() : [];
       return {
         total: records.length,
         limit: query?.limit || 50,
@@ -2161,6 +2623,108 @@ export class AdminService {
     };
   }
 
+  async getReconciliationDashboard() {
+    const [
+      reconTotal,
+      reconRequired,
+      reconInProgress,
+      reconResolved,
+      reconFailed,
+      reconNotRequired,
+      recTotal,
+      recRequired,
+      recInProgress,
+      recResolved,
+      recFailed,
+      whTotal,
+      whReceived,
+      whProcessing,
+      whProcessed,
+      whFailed,
+      whIgnored,
+      reconManualCount,
+      recManualCount,
+      allRecons,
+    ] = await Promise.all([
+      this.paymentReconRepo ? this.paymentReconRepo.count() : Promise.resolve(0),
+      this.paymentReconRepo ? this.paymentReconRepo.count({ where: { status: ReconciliationStatus.REQUIRED } }) : Promise.resolve(0),
+      this.paymentReconRepo ? this.paymentReconRepo.count({ where: { status: ReconciliationStatus.IN_PROGRESS } }) : Promise.resolve(0),
+      this.paymentReconRepo ? this.paymentReconRepo.count({ where: { status: ReconciliationStatus.RESOLVED } }) : Promise.resolve(0),
+      this.paymentReconRepo ? this.paymentReconRepo.count({ where: { status: ReconciliationStatus.FAILED } }) : Promise.resolve(0),
+      this.paymentReconRepo ? this.paymentReconRepo.count({ where: { status: ReconciliationStatus.NOT_REQUIRED } }) : Promise.resolve(0),
+
+      this.paymentRecoveryRepo ? this.paymentRecoveryRepo.count() : Promise.resolve(0),
+      this.paymentRecoveryRepo ? this.paymentRecoveryRepo.count({ where: { recoveryStatus: RecoveryStatus.REQUIRED } }) : Promise.resolve(0),
+      this.paymentRecoveryRepo ? this.paymentRecoveryRepo.count({ where: { recoveryStatus: RecoveryStatus.IN_PROGRESS } }) : Promise.resolve(0),
+      this.paymentRecoveryRepo ? this.paymentRecoveryRepo.count({ where: { recoveryStatus: RecoveryStatus.RESOLVED } }) : Promise.resolve(0),
+      this.paymentRecoveryRepo ? this.paymentRecoveryRepo.count({ where: { recoveryStatus: RecoveryStatus.FAILED } }) : Promise.resolve(0),
+
+      this.webhookEventRepo ? this.webhookEventRepo.count() : Promise.resolve(0),
+      this.webhookEventRepo ? this.webhookEventRepo.count({ where: { status: 'RECEIVED' } }) : Promise.resolve(0),
+      this.webhookEventRepo ? this.webhookEventRepo.count({ where: { status: 'PROCESSING' } }) : Promise.resolve(0),
+      this.webhookEventRepo ? this.webhookEventRepo.count({ where: { status: 'PROCESSED' } }) : Promise.resolve(0),
+      this.webhookEventRepo ? this.webhookEventRepo.count({ where: { status: 'FAILED' } }) : Promise.resolve(0),
+      this.webhookEventRepo ? this.webhookEventRepo.count({ where: { status: 'IGNORED' } }) : Promise.resolve(0),
+
+      this.paymentReconRepo ? this.paymentReconRepo.count({ where: { requiresManualIntervention: true } }) : Promise.resolve(0),
+      this.paymentRecoveryRepo ? this.paymentRecoveryRepo.count({ where: { requiresManualIntervention: true } }) : Promise.resolve(0),
+      this.paymentReconRepo ? this.paymentReconRepo.find({ select: ['mismatchCategory'] }) : Promise.resolve([]),
+    ]);
+
+    const mismatches: Record<string, number> = {
+      AMOUNT_MISMATCH: 0,
+      CURRENCY_MISMATCH: 0,
+      STATUS_MISMATCH: 0,
+      PROVIDER_ORDER_MISMATCH: 0,
+      PROVIDER_PAYMENT_MISMATCH: 0,
+      MISSING_PROVIDER_TRANSACTION: 0,
+      MISSING_CANONICAL_PAYMENT: 0,
+      UNKNOWN_PROVIDER_STATE: 0,
+      DUPLICATE_CAPTURES: 0,
+      REFUND_MISMATCH: 0,
+      NONE: 0,
+    };
+
+    for (const r of allRecons) {
+      const cat = r.mismatchCategory || 'NONE';
+      mismatches[cat] = (mismatches[cat] || 0) + 1;
+    }
+
+    return {
+      reconciliation: {
+        total: reconTotal,
+        required: reconRequired,
+        inProgress: reconInProgress,
+        resolved: reconResolved,
+        failed: reconFailed,
+        notRequired: reconNotRequired,
+      },
+      recovery: {
+        total: recTotal,
+        required: recRequired,
+        inProgress: recInProgress,
+        resolved: recResolved,
+        failed: recFailed,
+      },
+      webhooks: {
+        total: whTotal,
+        received: whReceived,
+        processing: whProcessing,
+        processed: whProcessed,
+        failed: whFailed,
+        ignored: whIgnored,
+      },
+      mismatches,
+      manualInterventionRequired: reconManualCount + recManualCount,
+      paymentConfig: {
+        paymentMode: 'SIMULATED',
+        razorpayLiveEnabled: false,
+        livePaymentBlocked: true,
+        status: 'SIMULATED_SAFE',
+      },
+    };
+  }
+
   async getReconciliationSummary() {
     if (this.paymentReconciliationService) {
       return this.paymentReconciliationService.getReconciliationSummary();
@@ -2183,7 +2747,182 @@ export class AdminService {
     if (!record) {
       throw new NotFoundException(`Reconciliation record ${id} not found`);
     }
-    return this.toSafeReconciliationRecord(record);
+
+    const [payment, booking, recovery, linkedWebhooks, auditLogs] = await Promise.all([
+      this.paymentRepo ? this.paymentRepo.findOne({ where: { id: record.paymentId } }) : Promise.resolve(null),
+      record.bookingId && this.bookingRepo ? this.bookingRepo.findOne({ where: { id: record.bookingId } }) : Promise.resolve(null),
+      this.paymentRecoveryRepo ? this.paymentRecoveryRepo.findOne({ where: { paymentId: record.paymentId } }) : Promise.resolve(null),
+      this.webhookEventRepo && typeof this.webhookEventRepo.find === 'function'
+        ? this.webhookEventRepo.find({
+            where: [
+              ...(record.providerPaymentId ? [{ providerPaymentId: record.providerPaymentId }] : []),
+              ...(record.providerOrderId ? [{ providerOrderId: record.providerOrderId }] : []),
+            ],
+          })
+        : Promise.resolve([]),
+      this.auditLogRepo && typeof this.auditLogRepo.find === 'function'
+        ? this.auditLogRepo.find({
+            where: [
+              { resourceId: id },
+              { resourceId: record.paymentId },
+              ...(record.bookingId ? [{ resourceId: record.bookingId }] : []),
+            ],
+            order: { createdAt: 'ASC' },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const timeline: Array<{
+      timestamp: Date;
+      event: string;
+      actor?: string;
+      status?: string;
+      description?: string;
+      metadata?: any;
+    }> = [];
+
+    if (booking) {
+      timeline.push({
+        timestamp: booking.createdAt,
+        event: 'BOOKING_CREATED',
+        actor: 'customer',
+        status: booking.status,
+        description: `Booking created: ${booking.title}`,
+      });
+    }
+
+    if (payment) {
+      timeline.push({
+        timestamp: payment.createdAt,
+        event: 'PAYMENT_CREATED',
+        actor: 'system',
+        status: payment.status,
+        description: `Payment intent created for ${payment.amount} ${payment.currency}`,
+      });
+      if (payment.updatedAt && new Date(payment.updatedAt).getTime() !== new Date(payment.createdAt).getTime()) {
+        timeline.push({
+          timestamp: payment.updatedAt,
+          event: `PAYMENT_${payment.status}`,
+          actor: 'system',
+          status: payment.status,
+          description: `Payment status transitioned to ${payment.status}`,
+        });
+      }
+    }
+
+    for (const wh of linkedWebhooks) {
+      timeline.push({
+        timestamp: wh.receivedAt,
+        event: `WEBHOOK_RECEIVED: ${wh.eventType}`,
+        actor: 'gateway_webhook',
+        status: wh.status,
+        description: `Webhook received with event ${wh.id}`,
+      });
+    }
+
+    if (recovery) {
+      timeline.push({
+        timestamp: recovery.createdAt,
+        event: `RECOVERY_TRIGGERED: ${recovery.failureCategory}`,
+        actor: 'system_recovery',
+        status: recovery.recoveryStatus,
+        description: recovery.safeFailureReason || 'Recovery initiated',
+      });
+    }
+
+    timeline.push({
+      timestamp: record.createdAt,
+      event: `RECONCILIATION_RECORD_CREATED: ${record.mismatchCategory}`,
+      actor: 'reconciliation_engine',
+      status: record.status,
+      description: `Mismatch flagged: ${record.mismatchCategory}`,
+    });
+
+    if (record.resolvedAt) {
+      timeline.push({
+        timestamp: record.resolvedAt,
+        event: 'RECONCILIATION_RESOLVED',
+        actor: 'operator',
+        status: record.status,
+        description: record.sanitizedResolutionReason || 'Reconciliation manually resolved',
+      });
+    }
+
+    for (const log of auditLogs) {
+      timeline.push({
+        timestamp: log.createdAt,
+        event: log.action,
+        actor: log.actorEmail,
+        description: `Audit log: ${log.action}`,
+        metadata: log.metadata,
+      });
+    }
+
+    timeline.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    const canonicalVsObserved = {
+      status: {
+        canonical: record.canonicalPaymentStatus,
+        observed: record.observedProviderStatus || null,
+        matches: record.canonicalPaymentStatus === record.observedProviderStatus,
+      },
+      amount: {
+        canonical: record.canonicalAmount,
+        canonicalMinor: record.canonicalAmountInMinorUnits,
+        observedMinor: record.observedAmountInMinorUnits ?? null,
+        matches: record.canonicalAmountInMinorUnits === record.observedAmountInMinorUnits,
+      },
+      currency: {
+        canonical: record.canonicalCurrency,
+        observed: record.observedCurrency || null,
+        matches: record.canonicalCurrency === record.observedCurrency,
+      },
+      providerOrderId: {
+        canonical: payment?.providerOrderId || null,
+        observed: record.providerOrderId || null,
+        matches: (payment?.providerOrderId || null) === (record.providerOrderId || null),
+      },
+      providerPaymentId: {
+        canonical: payment?.providerPaymentId || null,
+        observed: record.providerPaymentId || null,
+        matches: (payment?.providerPaymentId || null) === (record.providerPaymentId || null),
+      },
+    };
+
+    return {
+      ...this.toSafeReconciliationRecord(record),
+      canonicalVsObserved,
+      payment: payment ? {
+        id: payment.id,
+        amount: payment.amount,
+        currency: payment.currency,
+        status: payment.status,
+        provider: payment.provider,
+        providerOrderId: payment.providerOrderId || null,
+        providerPaymentId: payment.providerPaymentId || null,
+        failureReason: payment.failureReason || null,
+        refundAmount: payment.refundAmount || 0,
+        createdAt: payment.createdAt,
+        updatedAt: payment.updatedAt,
+      } : null,
+      booking: booking ? {
+        id: booking.id,
+        title: booking.title,
+        type: booking.type,
+        status: booking.status,
+        totalPrice: booking.totalPrice,
+        createdAt: booking.createdAt,
+      } : null,
+      recovery: recovery ? this.toSafeRecoveryRecord(recovery) : null,
+      webhooks: linkedWebhooks.map((w) => ({
+        id: w.id,
+        eventType: w.eventType,
+        status: w.status,
+        receivedAt: w.receivedAt,
+      })),
+      timeline,
+      auditLogs,
+    };
   }
 
   async triggerPaymentReconcile(
@@ -2216,23 +2955,70 @@ export class AdminService {
     dto: ResolveReconciliationDto,
     actor: any,
   ) {
-    if (!this.paymentReconciliationService) {
-      throw new BadRequestException('Payment reconciliation service not configured');
+    if (this.paymentReconciliationService) {
+      const result = await this.paymentReconciliationService.manualResolve(id, {
+        action: dto.action || 'MANUAL_RESOLUTION',
+        notes: dto.notes || 'Manually resolved by administrator',
+        actor: actor?.email || 'admin',
+        targetPaymentStatus: dto.targetPaymentStatus as any,
+        targetBookingStatus: dto.targetBookingStatus as any,
+      });
+
+      await this.createAuditRecord(actor, 'RESOLVE_PAYMENT_RECONCILIATION', 'PaymentReconciliation', id, {
+        action: dto.action,
+        notes: dto.notes,
+        paymentId: result.paymentId,
+      });
+
+      return this.toSafeReconciliationRecord(result);
     }
 
-    const result = await this.paymentReconciliationService.manualResolve(id, {
-      action: dto.action || 'MANUAL_RESOLUTION',
-      notes: dto.notes || 'Manually resolved by administrator',
-      actor: actor?.email || 'admin',
-    });
+    if (!this.paymentReconRepo) {
+      throw new BadRequestException('Payment reconciliation repository not configured');
+    }
+
+    const record = await this.paymentReconRepo.findOne({ where: { id } });
+    if (!record) {
+      throw new NotFoundException(`Reconciliation record ${id} not found`);
+    }
+
+    if (dto.targetPaymentStatus && this.paymentRepo) {
+      const payment = await this.paymentRepo.findOne({ where: { id: record.paymentId } });
+      if (payment) {
+        assertValidPaymentStateTransition(payment.status, dto.targetPaymentStatus as any);
+        payment.status = dto.targetPaymentStatus as any;
+        await this.paymentRepo.save(payment);
+      }
+    }
+
+    if (dto.targetBookingStatus && record.bookingId && this.bookingRepo) {
+      const booking = await this.bookingRepo.findOne({ where: { id: record.bookingId } });
+      if (booking) {
+        const allowed = VALID_BOOKING_TRANSITIONS[booking.status];
+        if (booking.status !== dto.targetBookingStatus && (!allowed || !allowed.includes(dto.targetBookingStatus as any))) {
+          throw new BadRequestException(
+            `Invalid booking state transition from ${booking.status} to ${dto.targetBookingStatus}`,
+          );
+        }
+        booking.status = dto.targetBookingStatus as any;
+        await this.bookingRepo.save(booking);
+      }
+    }
+
+    record.status = ReconciliationStatus.RESOLVED;
+    record.requiresManualIntervention = false;
+    record.resolutionAction = dto.action || 'MANUAL_RESOLUTION';
+    record.sanitizedResolutionReason = dto.notes || 'Manually resolved by administrator';
+    record.resolvedAt = new Date();
+    await this.paymentReconRepo.save(record);
 
     await this.createAuditRecord(actor, 'RESOLVE_PAYMENT_RECONCILIATION', 'PaymentReconciliation', id, {
       action: dto.action,
       notes: dto.notes,
-      paymentId: result.paymentId,
+      paymentId: record.paymentId,
     });
 
-    return this.toSafeReconciliationRecord(result);
+    return this.toSafeReconciliationRecord(record);
   }
 
   async triggerBatchReconcile(limit = 20, actor?: any) {

@@ -180,8 +180,8 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.text('Payment Transactions'), findsOneWidget);
-      expect(find.text('pay_1'), findsOneWidget);
+      expect(find.text('Payments & Reconciliation'), findsOneWidget);
+      expect(find.textContaining('pay_1'), findsWidgets);
       expect(find.text('CAPTURED'), findsWidgets);
     });
   });

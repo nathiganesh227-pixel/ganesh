@@ -172,6 +172,14 @@ export class ResolveReconciliationDto {
   @ApiPropertyOptional({ example: 'Manually verified gateway settlement' })
   @IsOptional()
   notes?: string;
+
+  @ApiPropertyOptional({ example: 'CAPTURED' })
+  @IsOptional()
+  targetPaymentStatus?: string;
+
+  @ApiPropertyOptional({ example: 'CONFIRMED' })
+  @IsOptional()
+  targetBookingStatus?: string;
 }
 
 export class TriggerReconcileDto {
@@ -183,5 +191,50 @@ export class TriggerReconcileDto {
   @IsOptional()
   notes?: string;
 }
+
+export class AdminUnifiedIncidentQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ example: 'ALL', enum: ['ALL', 'RECOVERY', 'RECONCILIATION', 'WEBHOOK'] })
+  @IsOptional()
+  type?: string;
+
+  @ApiPropertyOptional({ example: 'REQUIRED' })
+  @IsOptional()
+  status?: string;
+
+  @ApiPropertyOptional({ example: 'HIGH', enum: ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] })
+  @IsOptional()
+  severity?: string;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  requiresManualIntervention?: boolean;
+
+  @ApiPropertyOptional({ example: 'pay_' })
+  @IsOptional()
+  search?: string;
+}
+
+export class ResolveUnifiedIncidentDto {
+  @ApiPropertyOptional({ example: 'MANUAL_RESOLUTION' })
+  @IsOptional()
+  action?: string;
+
+  @ApiPropertyOptional({ example: 'Operator resolved discrepancy following gateway log check' })
+  @IsOptional()
+  notes?: string;
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  force?: boolean;
+
+  @ApiPropertyOptional({ example: 'CAPTURED' })
+  @IsOptional()
+  targetPaymentStatus?: string;
+
+  @ApiPropertyOptional({ example: 'CONFIRMED' })
+  @IsOptional()
+  targetBookingStatus?: string;
+}
+
 
 

@@ -91,6 +91,15 @@ class ApiEndpoints {
   static String adminAdjustRewards(String id) => '/admin/users/$id/rewards';
   static const String adminNotifications = '/admin/notifications';
   static const String adminIncidents = '/admin/incidents';
+  static String adminIncidentDetails(String id) => '/admin/incidents/$id';
+  static String adminResolveIncident(String id) => '/admin/incidents/$id/resolve';
+  static const String adminReconciliationDashboard = '/admin/payments/reconciliation/dashboard';
+  static const String adminReconciliationRecords = '/admin/payments/reconciliation';
+  static const String adminReconciliationSummary = '/admin/payments/reconciliation/summary';
+  static String adminReconciliationDetails(String id) => '/admin/payments/reconciliation/$id';
+  static String adminTriggerPaymentReconcile(String paymentId) => '/admin/payments/reconciliation/$paymentId/reconcile';
+  static const String adminTriggerBatchReconcile = '/admin/payments/reconciliation/batch';
+  static String adminResolveReconciliation(String id) => '/admin/payments/reconciliation/$id/resolve';
 
   // Phase 22 — Partner Portal Endpoints
   static const String partnerOnboard = '/partners/onboard';

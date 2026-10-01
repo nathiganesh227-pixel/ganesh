@@ -318,4 +318,208 @@ class Phase21MockAdminRepository implements AdminRepository {
   Future<ApiResponse<dynamic>> triggerIntegrationSync(String providerId, {String? vertical}) async {
     return ApiResponse.success({'triggered': true, 'providerId': providerId});
   }
+
+  // Phase 25.7 Stubs
+  @override
+  Future<ApiResponse<ReconciliationDashboardData>> getReconciliationDashboard() async {
+    return ApiResponse.success(const ReconciliationDashboardData(
+      reconciliation: {'total': 12, 'required': 3, 'inProgress': 1, 'resolved': 8, 'failed': 0, 'notRequired': 0},
+      recovery: {'total': 5, 'required': 2, 'inProgress': 1, 'resolved': 2, 'failed': 0},
+      webhooks: {'total': 18, 'received': 2, 'processing': 0, 'processed': 15, 'failed': 1, 'ignored': 0},
+      mismatches: {'AMOUNT_MISMATCH': 2, 'NO_MISMATCH': 10},
+      manualInterventionRequired: 5,
+      paymentConfig: {'paymentMode': 'SIMULATED', 'razorpayLiveEnabled': false, 'livePaymentBlocked': true, 'status': 'SIMULATED_SAFE'},
+    ));
+  }
+
+  @override
+  Future<ApiResponse<List<ReconciliationRecordItem>>> getReconciliationRecords({
+    String? status,
+    String? mismatchCategory,
+    String? paymentId,
+    String? bookingId,
+    bool? requiresManualIntervention,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    return ApiResponse.success([
+      ReconciliationRecordItem(
+        id: 'recon_101',
+        paymentId: 'pay_recon_101',
+        bookingId: 'bk_mov_101',
+        provider: 'simulated',
+        canonicalPaymentStatus: 'CAPTURED',
+        observedProviderStatus: 'PENDING',
+        canonicalAmount: 543,
+        canonicalAmountInMinorUnits: 54300,
+        observedAmountInMinorUnits: 54300,
+        canonicalCurrency: 'INR',
+        mismatchCategory: 'AMOUNT_MISMATCH',
+        status: 'REQUIRED',
+        attemptCount: 1,
+        requiresManualIntervention: true,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+    ]);
+  }
+
+  @override
+  Future<ApiResponse<ReconciliationDetailData>> getReconciliationDetails(String id) async {
+    return ApiResponse.success(ReconciliationDetailData(
+      record: ReconciliationRecordItem(
+        id: id,
+        paymentId: 'pay_recon_101',
+        provider: 'simulated',
+        canonicalPaymentStatus: 'CAPTURED',
+        canonicalAmount: 543,
+        canonicalAmountInMinorUnits: 54300,
+        canonicalCurrency: 'INR',
+        mismatchCategory: 'AMOUNT_MISMATCH',
+        status: 'REQUIRED',
+        attemptCount: 1,
+        requiresManualIntervention: true,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+      canonicalVsObserved: {
+        'status': {'canonical': 'CAPTURED', 'observed': 'PENDING', 'matches': false},
+        'amount': {'canonical': 543, 'canonicalMinor': 54300, 'observedMinor': 54300, 'matches': true},
+        'currency': {'canonical': 'INR', 'observed': 'INR', 'matches': true},
+      },
+      timeline: [
+        AdminTimelineEvent(
+          timestamp: DateTime.now(),
+          event: 'PAYMENT_CREATED',
+          actor: 'system',
+          status: 'PENDING',
+          description: 'Payment intent created',
+        ),
+      ],
+      auditLogs: [],
+    ));
+  }
+
+  @override
+  Future<ApiResponse<ReconciliationRecordItem>> triggerReconcile(String paymentId, {bool? force, String? notes}) async {
+    return ApiResponse.success(ReconciliationRecordItem(
+      id: 'recon_triggered',
+      paymentId: paymentId,
+      provider: 'simulated',
+      canonicalPaymentStatus: 'CAPTURED',
+      canonicalAmount: 543,
+      canonicalAmountInMinorUnits: 54300,
+      canonicalCurrency: 'INR',
+      mismatchCategory: 'NO_MISMATCH',
+      status: 'RESOLVED',
+      attemptCount: 2,
+      requiresManualIntervention: false,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    ));
+  }
+
+  @override
+  Future<ApiResponse<dynamic>> triggerBatchReconcile({int limit = 20}) async {
+    return ApiResponse.success({'processed': 5, 'resolved': 3, 'failed': 0});
+  }
+
+  @override
+  Future<ApiResponse<ReconciliationRecordItem>> resolveReconciliation(
+    String id, {
+    String? action,
+    String? notes,
+    String? targetPaymentStatus,
+    String? targetBookingStatus,
+  }) async {
+    return ApiResponse.success(ReconciliationRecordItem(
+      id: id,
+      paymentId: 'pay_recon_101',
+      provider: 'simulated',
+      canonicalPaymentStatus: targetPaymentStatus ?? 'CAPTURED',
+      canonicalAmount: 543,
+      canonicalAmountInMinorUnits: 54300,
+      canonicalCurrency: 'INR',
+      mismatchCategory: 'AMOUNT_MISMATCH',
+      status: 'RESOLVED',
+      attemptCount: 1,
+      requiresManualIntervention: false,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    ));
+  }
+
+  @override
+  Future<ApiResponse<List<UnifiedIncidentItem>>> getUnifiedIncidents({
+    String? type,
+    String? status,
+    String? severity,
+    bool? requiresManualIntervention,
+    String? search,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    return ApiResponse.success([
+      UnifiedIncidentItem(
+        id: 'inc_rec_001',
+        type: 'RECOVERY',
+        title: 'Payment Recovery: UNKNOWN_PROVIDER_OUTCOME',
+        description: 'Gateway timeout during capture',
+        status: 'REQUIRED',
+        severity: 'HIGH',
+        referenceId: 'pay_sim_123',
+        paymentId: 'pay_sim_123',
+        bookingId: 'bk_001',
+        failureCategory: 'UNKNOWN_PROVIDER_OUTCOME',
+        requiresManualIntervention: true,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+      UnifiedIncidentItem(
+        id: 'inc_recon_002',
+        type: 'RECONCILIATION',
+        title: 'Reconciliation: AMOUNT_MISMATCH',
+        description: 'Discrepancy category AMOUNT_MISMATCH',
+        status: 'REQUIRED',
+        severity: 'HIGH',
+        referenceId: 'pay_recon_101',
+        paymentId: 'pay_recon_101',
+        bookingId: 'bk_mov_101',
+        mismatchCategory: 'AMOUNT_MISMATCH',
+        requiresManualIntervention: true,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+      UnifiedIncidentItem(
+        id: 'evt_wh_003',
+        type: 'WEBHOOK',
+        title: 'Webhook: payment.failed',
+        description: 'Signature verification error',
+        status: 'FAILED',
+        severity: 'HIGH',
+        referenceId: 'pay_wh_003',
+        failureCategory: 'WEBHOOK_FAILURE',
+        requiresManualIntervention: true,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+    ]);
+  }
+
+  @override
+  Future<ApiResponse<Map<String, dynamic>>> getUnifiedIncidentDetails(String id) async {
+    return ApiResponse.success({});
+  }
+
+  @override
+  Future<ApiResponse<dynamic>> resolveUnifiedIncident(
+    String id, {
+    String? action,
+    String? notes,
+    bool? force,
+    String? targetPaymentStatus,
+    String? targetBookingStatus,
+  }) async {
+    return ApiResponse.success({'resolved': true});
+  }
 }

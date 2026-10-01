@@ -83,4 +83,46 @@ abstract class AdminRepository {
   Future<ApiResponse<IntegrationHealthSummary>> getIntegrationHealth();
   Future<ApiResponse<List<IntegrationSyncRun>>> getIntegrationSyncRuns({String? provider, int limit = 20, int offset = 0});
   Future<ApiResponse<dynamic>> triggerIntegrationSync(String providerId, {String? vertical});
+
+  // Phase 25.7 — Admin Reconciliation & Incident Center
+  Future<ApiResponse<ReconciliationDashboardData>> getReconciliationDashboard();
+  Future<ApiResponse<List<ReconciliationRecordItem>>> getReconciliationRecords({
+    String? status,
+    String? mismatchCategory,
+    String? paymentId,
+    String? bookingId,
+    bool? requiresManualIntervention,
+    int limit = 50,
+    int offset = 0,
+  });
+  Future<ApiResponse<ReconciliationDetailData>> getReconciliationDetails(String id);
+  Future<ApiResponse<ReconciliationRecordItem>> triggerReconcile(String paymentId, {bool? force, String? notes});
+  Future<ApiResponse<dynamic>> triggerBatchReconcile({int limit = 20});
+  Future<ApiResponse<ReconciliationRecordItem>> resolveReconciliation(
+    String id, {
+    String? action,
+    String? notes,
+    String? targetPaymentStatus,
+    String? targetBookingStatus,
+  });
+
+  // Unified Incident Center
+  Future<ApiResponse<List<UnifiedIncidentItem>>> getUnifiedIncidents({
+    String? type,
+    String? status,
+    String? severity,
+    bool? requiresManualIntervention,
+    String? search,
+    int limit = 50,
+    int offset = 0,
+  });
+  Future<ApiResponse<Map<String, dynamic>>> getUnifiedIncidentDetails(String id);
+  Future<ApiResponse<dynamic>> resolveUnifiedIncident(
+    String id, {
+    String? action,
+    String? notes,
+    bool? force,
+    String? targetPaymentStatus,
+    String? targetBookingStatus,
+  });
 }

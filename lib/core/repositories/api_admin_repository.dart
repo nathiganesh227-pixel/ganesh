@@ -511,4 +511,166 @@ class ApiAdminRepository implements AdminRepository {
       fromJson: (json) => json,
     );
   }
+
+  // ---------------- PHASE 25.7 RECONCILIATION & INCIDENT CENTER ----------------
+  @override
+  Future<ApiResponse<ReconciliationDashboardData>> getReconciliationDashboard() {
+    return _client.get<ReconciliationDashboardData>(
+      ApiEndpoints.adminReconciliationDashboard,
+      fromJson: (json) => ReconciliationDashboardData.fromJson(json as Map<String, dynamic>),
+    );
+  }
+
+  @override
+  Future<ApiResponse<List<ReconciliationRecordItem>>> getReconciliationRecords({
+    String? status,
+    String? mismatchCategory,
+    String? paymentId,
+    String? bookingId,
+    bool? requiresManualIntervention,
+    int limit = 50,
+    int offset = 0,
+  }) {
+    final params = <String, String>{
+      'limit': limit.toString(),
+      'offset': offset.toString(),
+    };
+    if (status != null) params['status'] = status;
+    if (mismatchCategory != null) params['mismatchCategory'] = mismatchCategory;
+    if (paymentId != null) params['paymentId'] = paymentId;
+    if (bookingId != null) params['bookingId'] = bookingId;
+    if (requiresManualIntervention != null) params['requiresManualIntervention'] = requiresManualIntervention.toString();
+
+    return _client.get<List<ReconciliationRecordItem>>(
+      ApiEndpoints.adminReconciliationRecords,
+      queryParams: params,
+      fromJson: (json) {
+        if (json is Map<String, dynamic> && json['items'] is List) {
+          return (json['items'] as List)
+              .map((e) => ReconciliationRecordItem.fromJson(e as Map<String, dynamic>))
+              .toList();
+        } else if (json is List) {
+          return json.map((e) => ReconciliationRecordItem.fromJson(e as Map<String, dynamic>)).toList();
+        }
+        return [];
+      },
+    );
+  }
+
+  @override
+  Future<ApiResponse<ReconciliationDetailData>> getReconciliationDetails(String id) {
+    return _client.get<ReconciliationDetailData>(
+      ApiEndpoints.adminReconciliationDetails(id),
+      fromJson: (json) => ReconciliationDetailData.fromJson(json as Map<String, dynamic>),
+    );
+  }
+
+  @override
+  Future<ApiResponse<ReconciliationRecordItem>> triggerReconcile(String paymentId, {bool? force, String? notes}) {
+    final body = <String, dynamic>{};
+    if (force != null) body['force'] = force;
+    if (notes != null) body['notes'] = notes;
+
+    return _client.post<ReconciliationRecordItem>(
+      ApiEndpoints.adminTriggerPaymentReconcile(paymentId),
+      body: body,
+      fromJson: (json) => ReconciliationRecordItem.fromJson(json as Map<String, dynamic>),
+    );
+  }
+
+  @override
+  Future<ApiResponse<dynamic>> triggerBatchReconcile({int limit = 20}) {
+    return _client.post<dynamic>(
+      '${ApiEndpoints.adminTriggerBatchReconcile}?limit=$limit',
+      fromJson: (json) => json,
+    );
+  }
+
+  @override
+  Future<ApiResponse<ReconciliationRecordItem>> resolveReconciliation(
+    String id, {
+    String? action,
+    String? notes,
+    String? targetPaymentStatus,
+    String? targetBookingStatus,
+  }) {
+    final body = <String, dynamic>{};
+    if (action != null) body['action'] = action;
+    if (notes != null) body['notes'] = notes;
+    if (targetPaymentStatus != null) body['targetPaymentStatus'] = targetPaymentStatus;
+    if (targetBookingStatus != null) body['targetBookingStatus'] = targetBookingStatus;
+
+    return _client.post<ReconciliationRecordItem>(
+      ApiEndpoints.adminResolveReconciliation(id),
+      body: body,
+      fromJson: (json) => ReconciliationRecordItem.fromJson(json as Map<String, dynamic>),
+    );
+  }
+
+  @override
+  Future<ApiResponse<List<UnifiedIncidentItem>>> getUnifiedIncidents({
+    String? type,
+    String? status,
+    String? severity,
+    bool? requiresManualIntervention,
+    String? search,
+    int limit = 50,
+    int offset = 0,
+  }) {
+    final params = <String, String>{
+      'limit': limit.toString(),
+      'offset': offset.toString(),
+    };
+    if (type != null) params['type'] = type;
+    if (status != null) params['status'] = status;
+    if (severity != null) params['severity'] = severity;
+    if (requiresManualIntervention != null) params['requiresManualIntervention'] = requiresManualIntervention.toString();
+    if (search != null) params['search'] = search;
+
+    return _client.get<List<UnifiedIncidentItem>>(
+      ApiEndpoints.adminIncidents,
+      queryParams: params,
+      fromJson: (json) {
+        if (json is Map<String, dynamic> && json['incidents'] is List) {
+          return (json['incidents'] as List)
+              .map((e) => UnifiedIncidentItem.fromJson(e as Map<String, dynamic>))
+              .toList();
+        } else if (json is List) {
+          return json.map((e) => UnifiedIncidentItem.fromJson(e as Map<String, dynamic>)).toList();
+        }
+        return [];
+      },
+    );
+  }
+
+  @override
+  Future<ApiResponse<Map<String, dynamic>>> getUnifiedIncidentDetails(String id) {
+    return _client.get<Map<String, dynamic>>(
+      ApiEndpoints.adminIncidentDetails(id),
+      fromJson: (json) => json is Map<String, dynamic> ? json : {},
+    );
+  }
+
+  @override
+  Future<ApiResponse<dynamic>> resolveUnifiedIncident(
+    String id, {
+    String? action,
+    String? notes,
+    bool? force,
+    String? targetPaymentStatus,
+    String? targetBookingStatus,
+  }) {
+    final body = <String, dynamic>{};
+    if (action != null) body['action'] = action;
+    if (notes != null) body['notes'] = notes;
+    if (force != null) body['force'] = force;
+    if (targetPaymentStatus != null) body['targetPaymentStatus'] = targetPaymentStatus;
+    if (targetBookingStatus != null) body['targetBookingStatus'] = targetBookingStatus;
+
+    return _client.post<dynamic>(
+      ApiEndpoints.adminResolveIncident(id),
+      body: body,
+      fromJson: (json) => json,
+    );
+  }
 }

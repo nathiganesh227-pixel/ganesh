@@ -840,3 +840,280 @@ class AdminNotificationItem {
     );
   }
 }
+
+/// Operational Timeline Event Model
+class AdminTimelineEvent {
+  final DateTime timestamp;
+  final String event;
+  final String? actor;
+  final String? status;
+  final String? description;
+  final Map<String, dynamic>? metadata;
+
+  const AdminTimelineEvent({
+    required this.timestamp,
+    required this.event,
+    this.actor,
+    this.status,
+    this.description,
+    this.metadata,
+  });
+
+  factory AdminTimelineEvent.fromJson(Map<String, dynamic> json) {
+    return AdminTimelineEvent(
+      timestamp: json['timestamp'] != null
+          ? DateTime.tryParse(json['timestamp'] as String) ?? DateTime.now()
+          : DateTime.now(),
+      event: json['event'] as String? ?? '',
+      actor: json['actor'] as String?,
+      status: json['status'] as String?,
+      description: json['description'] as String?,
+      metadata: json['metadata'] as Map<String, dynamic>?,
+    );
+  }
+}
+
+/// Unified Incident Model
+class UnifiedIncidentItem {
+  final String id;
+  final String type; // 'RECOVERY' | 'RECONCILIATION' | 'WEBHOOK'
+  final String title;
+  final String description;
+  final String status;
+  final String severity; // 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
+  final String referenceId;
+  final String? paymentId;
+  final String? bookingId;
+  final String? failureCategory;
+  final String? mismatchCategory;
+  final bool requiresManualIntervention;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final DateTime? resolvedAt;
+
+  const UnifiedIncidentItem({
+    required this.id,
+    required this.type,
+    required this.title,
+    required this.description,
+    required this.status,
+    required this.severity,
+    required this.referenceId,
+    this.paymentId,
+    this.bookingId,
+    this.failureCategory,
+    this.mismatchCategory,
+    required this.requiresManualIntervention,
+    required this.createdAt,
+    required this.updatedAt,
+    this.resolvedAt,
+  });
+
+  factory UnifiedIncidentItem.fromJson(Map<String, dynamic> json) {
+    return UnifiedIncidentItem(
+      id: json['id'] as String? ?? '',
+      type: json['type'] as String? ?? 'RECOVERY',
+      title: json['title'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      status: json['status'] as String? ?? 'UNKNOWN',
+      severity: json['severity'] as String? ?? 'MEDIUM',
+      referenceId: json['referenceId'] as String? ?? '',
+      paymentId: json['paymentId'] as String?,
+      bookingId: json['bookingId'] as String?,
+      failureCategory: json['failureCategory'] as String?,
+      mismatchCategory: json['mismatchCategory'] as String?,
+      requiresManualIntervention: json['requiresManualIntervention'] as bool? ?? false,
+      createdAt: json['createdAt'] != null
+          ? DateTime.tryParse(json['createdAt'] as String) ?? DateTime.now()
+          : DateTime.now(),
+      updatedAt: json['updatedAt'] != null
+          ? DateTime.tryParse(json['updatedAt'] as String) ?? DateTime.now()
+          : DateTime.now(),
+      resolvedAt: json['resolvedAt'] != null
+          ? DateTime.tryParse(json['resolvedAt'] as String)
+          : null,
+    );
+  }
+}
+
+/// Reconciliation Dashboard Data Model
+class ReconciliationDashboardData {
+  final Map<String, int> reconciliation;
+  final Map<String, int> recovery;
+  final Map<String, int> webhooks;
+  final Map<String, int> mismatches;
+  final int manualInterventionRequired;
+  final Map<String, dynamic> paymentConfig;
+
+  const ReconciliationDashboardData({
+    required this.reconciliation,
+    required this.recovery,
+    required this.webhooks,
+    required this.mismatches,
+    required this.manualInterventionRequired,
+    required this.paymentConfig,
+  });
+
+  factory ReconciliationDashboardData.fromJson(Map<String, dynamic> json) {
+    Map<String, int> parseIntMap(dynamic source) {
+      if (source is! Map) return {};
+      final map = <String, int>{};
+      source.forEach((k, v) {
+        if (v is num) map[k.toString()] = v.toInt();
+      });
+      return map;
+    }
+
+    return ReconciliationDashboardData(
+      reconciliation: parseIntMap(json['reconciliation']),
+      recovery: parseIntMap(json['recovery']),
+      webhooks: parseIntMap(json['webhooks']),
+      mismatches: parseIntMap(json['mismatches']),
+      manualInterventionRequired: (json['manualInterventionRequired'] as num?)?.toInt() ?? 0,
+      paymentConfig: json['paymentConfig'] is Map<String, dynamic>
+          ? json['paymentConfig'] as Map<String, dynamic>
+          : {},
+    );
+  }
+}
+
+/// Reconciliation Record Item Model
+class ReconciliationRecordItem {
+  final String id;
+  final String paymentId;
+  final String? bookingId;
+  final String? quoteId;
+  final String provider;
+  final String? providerPaymentId;
+  final String? providerOrderId;
+  final String canonicalPaymentStatus;
+  final String? observedProviderStatus;
+  final double canonicalAmount;
+  final int canonicalAmountInMinorUnits;
+  final int? observedAmountInMinorUnits;
+  final String canonicalCurrency;
+  final String? observedCurrency;
+  final String mismatchCategory;
+  final String status;
+  final int attemptCount;
+  final DateTime? lastAttemptedAt;
+  final DateTime? nextRetryAt;
+  final DateTime? resolvedAt;
+  final String? resolutionAction;
+  final String? sanitizedResolutionReason;
+  final bool requiresManualIntervention;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  const ReconciliationRecordItem({
+    required this.id,
+    required this.paymentId,
+    this.bookingId,
+    this.quoteId,
+    required this.provider,
+    this.providerPaymentId,
+    this.providerOrderId,
+    required this.canonicalPaymentStatus,
+    this.observedProviderStatus,
+    required this.canonicalAmount,
+    required this.canonicalAmountInMinorUnits,
+    this.observedAmountInMinorUnits,
+    required this.canonicalCurrency,
+    this.observedCurrency,
+    required this.mismatchCategory,
+    required this.status,
+    required this.attemptCount,
+    this.lastAttemptedAt,
+    this.nextRetryAt,
+    this.resolvedAt,
+    this.resolutionAction,
+    this.sanitizedResolutionReason,
+    required this.requiresManualIntervention,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory ReconciliationRecordItem.fromJson(Map<String, dynamic> json) {
+    return ReconciliationRecordItem(
+      id: json['id'] as String? ?? '',
+      paymentId: json['paymentId'] as String? ?? '',
+      bookingId: json['bookingId'] as String?,
+      quoteId: json['quoteId'] as String?,
+      provider: json['provider'] as String? ?? 'simulated',
+      providerPaymentId: json['providerPaymentId'] as String?,
+      providerOrderId: json['providerOrderId'] as String?,
+      canonicalPaymentStatus: json['canonicalPaymentStatus'] as String? ?? '',
+      observedProviderStatus: json['observedProviderStatus'] as String?,
+      canonicalAmount: (json['canonicalAmount'] as num?)?.toDouble() ?? 0.0,
+      canonicalAmountInMinorUnits: (json['canonicalAmountInMinorUnits'] as num?)?.toInt() ?? 0,
+      observedAmountInMinorUnits: (json['observedAmountInMinorUnits'] as num?)?.toInt(),
+      canonicalCurrency: json['canonicalCurrency'] as String? ?? 'INR',
+      observedCurrency: json['observedCurrency'] as String?,
+      mismatchCategory: json['mismatchCategory'] as String? ?? 'NO_MISMATCH',
+      status: json['status'] as String? ?? 'REQUIRED',
+      attemptCount: (json['attemptCount'] as num?)?.toInt() ?? 0,
+      lastAttemptedAt: json['lastAttemptedAt'] != null
+          ? DateTime.tryParse(json['lastAttemptedAt'] as String)
+          : null,
+      nextRetryAt: json['nextRetryAt'] != null
+          ? DateTime.tryParse(json['nextRetryAt'] as String)
+          : null,
+      resolvedAt: json['resolvedAt'] != null
+          ? DateTime.tryParse(json['resolvedAt'] as String)
+          : null,
+      resolutionAction: json['resolutionAction'] as String?,
+      sanitizedResolutionReason: json['sanitizedResolutionReason'] as String?,
+      requiresManualIntervention: json['requiresManualIntervention'] as bool? ?? false,
+      createdAt: json['createdAt'] != null
+          ? DateTime.tryParse(json['createdAt'] as String) ?? DateTime.now()
+          : DateTime.now(),
+      updatedAt: json['updatedAt'] != null
+          ? DateTime.tryParse(json['updatedAt'] as String) ?? DateTime.now()
+          : DateTime.now(),
+    );
+  }
+}
+
+/// Reconciliation Detail Data Model (including Canonical vs Observed comparisons and timeline)
+class ReconciliationDetailData {
+  final ReconciliationRecordItem record;
+  final Map<String, dynamic> canonicalVsObserved;
+  final AdminPayment? payment;
+  final AdminBooking? booking;
+  final List<AdminTimelineEvent> timeline;
+  final List<AdminAuditLog> auditLogs;
+
+  const ReconciliationDetailData({
+    required this.record,
+    required this.canonicalVsObserved,
+    this.payment,
+    this.booking,
+    required this.timeline,
+    required this.auditLogs,
+  });
+
+  factory ReconciliationDetailData.fromJson(Map<String, dynamic> json) {
+    return ReconciliationDetailData(
+      record: ReconciliationRecordItem.fromJson(json),
+      canonicalVsObserved: json['canonicalVsObserved'] is Map<String, dynamic>
+          ? json['canonicalVsObserved'] as Map<String, dynamic>
+          : {},
+      payment: json['payment'] != null && json['payment'] is Map<String, dynamic>
+          ? AdminPayment.fromJson(json['payment'] as Map<String, dynamic>)
+          : null,
+      booking: json['booking'] != null && json['booking'] is Map<String, dynamic>
+          ? AdminBooking.fromJson(json['booking'] as Map<String, dynamic>)
+          : null,
+      timeline: json['timeline'] is List
+          ? (json['timeline'] as List)
+              .map((e) => AdminTimelineEvent.fromJson(e as Map<String, dynamic>))
+              .toList()
+          : [],
+      auditLogs: json['auditLogs'] is List
+          ? (json['auditLogs'] as List)
+              .map((e) => AdminAuditLog.fromJson(e as Map<String, dynamic>))
+              .toList()
+          : [],
+    );
+  }
+}
