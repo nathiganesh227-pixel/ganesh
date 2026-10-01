@@ -1,6 +1,14 @@
-import { Injectable, Logger, BadRequestException, NotFoundException, Optional } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  NotFoundException,
+  Optional,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual, In } from 'typeorm';
+import { Repository, LessThanOrEqual, In, DataSource } from 'typeorm';
 import {
   PaymentReconciliationEntity,
   ReconciliationMismatchCategory,
@@ -22,17 +30,21 @@ import { SimulatedPaymentAdapter } from './providers/simulated-payment.adapter';
 import { RazorpayAdapter } from './providers/razorpay.adapter';
 import { IPaymentProvider, ProviderPaymentDetails } from './interfaces/payment-provider.interface';
 import { PaymentRecoveryService } from './payment-recovery.service';
+import { IdempotencyService } from '../bookings/idempotency.service';
 
 export interface ReconcilePaymentOptions {
   force?: boolean;
   actor?: string;
   notes?: string;
+  idempotencyKey?: string;
 }
 
 export interface ManualResolveOptions {
   action: string;
   notes: string;
   actor?: string;
+  targetPaymentStatus?: PaymentStatus;
+  targetBookingStatus?: BookingStatus;
 }
 
 export interface ReconciliationQueryFilter {
@@ -46,9 +58,11 @@ export interface ReconciliationQueryFilter {
 }
 
 @Injectable()
-export class PaymentReconciliationService {
+export class PaymentReconciliationService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PaymentReconciliationService.name);
   private readonly inFlightReconciliations = new Set<string>();
+  private schedulerTimer: NodeJS.Timeout | null = null;
+  private isBatchRunning = false;
 
   constructor(
     @InjectRepository(PaymentReconciliationEntity)
@@ -64,6 +78,8 @@ export class PaymentReconciliationService {
     @InjectRepository(IdempotencyRecordEntity)
     private readonly idempotencyRepo: Repository<IdempotencyRecordEntity>,
     @Optional()
+    private readonly dataSource?: DataSource,
+    @Optional()
     private readonly paymentConfigService?: PaymentConfigService,
     @Optional()
     private readonly simulatedAdapter?: SimulatedPaymentAdapter,
@@ -71,7 +87,31 @@ export class PaymentReconciliationService {
     private readonly razorpayAdapter?: RazorpayAdapter,
     @Optional()
     private readonly recoveryService?: PaymentRecoveryService,
+    @Optional()
+    private readonly idempotencyService?: IdempotencyService,
   ) {}
+
+  onModuleInit() {
+    if (process.env.ENABLE_RECONCILIATION_SCHEDULER === 'true') {
+      const intervalMs = parseInt(process.env.RECONCILIATION_INTERVAL_MS || '60000', 10);
+      this.logger.log(`[ReconciliationScheduler] Initialized background scheduler with interval: ${intervalMs}ms`);
+      this.schedulerTimer = setInterval(async () => {
+        try {
+          await this.runScheduledSweep();
+        } catch (err) {
+          this.logger.error(`[ReconciliationScheduler] Background sweep encountered error: ${err}`);
+        }
+      }, intervalMs);
+    }
+  }
+
+  onModuleDestroy() {
+    if (this.schedulerTimer) {
+      clearInterval(this.schedulerTimer);
+      this.schedulerTimer = null;
+      this.logger.log('[ReconciliationScheduler] Background scheduler stopped');
+    }
+  }
 
   private getActiveProvider(providerName?: string): IPaymentProvider {
     const config = this.paymentConfigService ?? new PaymentConfigService(process.env);
@@ -85,7 +125,7 @@ export class PaymentReconciliationService {
   }
 
   /**
-   * Sanitizes resolution reason strings and notes.
+   * Sanitizes resolution reason strings and notes by redacting credentials and tokens.
    */
   sanitizeText(text?: string | any): string {
     if (!text) return '';
@@ -93,7 +133,8 @@ export class PaymentReconciliationService {
     str = str
       .replace(/rzp_(?:live|test)_[a-zA-Z0-9]+/gi, '[REDACTED_RZP_KEY]')
       .replace(/(?:key_secret|secret|password|token|bearer)\s*[:=]\s*["']?[^\s,"']+/gi, '$1=[REDACTED]')
-      .replace(/eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g, '[REDACTED_JWT]');
+      .replace(/eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g, '[REDACTED_JWT]')
+      .replace(/postgres(?:ql)?:\/\/[^\s]+/gi, '[REDACTED_DB_URL]');
 
     if (str.includes('\n    at ')) {
       str = str.split('\n    at ')[0].trim();
@@ -110,6 +151,7 @@ export class PaymentReconciliationService {
 
   /**
    * Core Reconcile Method for a single canonical payment ID.
+   * Employs fast-path in-memory lock and database-level transactional consistency.
    */
   async reconcilePayment(
     paymentId: string,
@@ -132,37 +174,55 @@ export class PaymentReconciliationService {
     this.inFlightReconciliations.add(lockKey);
 
     try {
-      return await this.executeReconcile(lockKey, options);
+      if (this.dataSource && typeof this.dataSource.transaction === 'function') {
+        return await this.dataSource.transaction(async (manager) => {
+          return await this.executeReconcileWithManager(lockKey, options, manager);
+        });
+      }
+      return await this.executeReconcileWithManager(lockKey, options, null);
     } finally {
       this.inFlightReconciliations.delete(lockKey);
     }
   }
 
-  private async executeReconcile(
+  private async executeReconcileWithManager(
     paymentId: string,
     options: ReconcilePaymentOptions,
+    manager: any,
   ): Promise<PaymentReconciliationEntity> {
-    const payment = await this.paymentRepo.findOne({ where: { id: paymentId } });
+    // 1. Fetch Payment with pessimistic write lock if in transaction
+    let payment: PaymentEntity | null = null;
+    if (manager) {
+      try {
+        payment = await manager.findOne(PaymentEntity, {
+          where: { id: paymentId },
+          lock: { mode: 'pessimistic_write' },
+        });
+      } catch {
+        payment = await manager.findOne(PaymentEntity, { where: { id: paymentId } });
+      }
+    } else {
+      payment = await this.paymentRepo.findOne({ where: { id: paymentId } });
+    }
 
     // Handle missing canonical payment
     if (!payment) {
       const reconId = this.generateReconId(paymentId);
-      const record = this.reconRepo.create({
-        id: reconId,
-        paymentId,
-        canonicalPaymentStatus: PaymentStatus.FAILED,
-        canonicalAmount: 0,
-        canonicalAmountInMinorUnits: 0,
-        canonicalCurrency: 'INR',
-        provider: 'simulated',
-        mismatchCategory: ReconciliationMismatchCategory.MISSING_CANONICAL_PAYMENT,
-        status: ReconciliationStatus.FAILED,
-        attemptCount: 1,
-        lastAttemptedAt: new Date(),
-        requiresManualIntervention: true,
-        sanitizedResolutionReason: this.sanitizeText(`Payment record ${paymentId} not found in database`),
-      });
-      return await this.reconRepo.save(record);
+      const record = (manager ? manager.create(PaymentReconciliationEntity, { id: reconId }) : this.reconRepo.create({ id: reconId }));
+      record.paymentId = paymentId;
+      record.canonicalPaymentStatus = PaymentStatus.FAILED;
+      record.canonicalAmount = 0;
+      record.canonicalAmountInMinorUnits = 0;
+      record.canonicalCurrency = 'INR';
+      record.provider = 'simulated';
+      record.mismatchCategory = ReconciliationMismatchCategory.MISSING_CANONICAL_PAYMENT;
+      record.status = ReconciliationStatus.FAILED;
+      record.attemptCount = 1;
+      record.lastAttemptedAt = new Date();
+      record.requiresManualIntervention = true;
+      record.sanitizedResolutionReason = this.sanitizeText(`Payment record ${paymentId} not found in database`);
+
+      return manager ? await manager.save(record) : await this.reconRepo.save(record);
     }
 
     const canonicalMinorUnits = toMinorUnits(payment.amount);
@@ -170,29 +230,35 @@ export class PaymentReconciliationService {
     const providerAdapter = this.getActiveProvider(payment.provider);
 
     // Retrieve or create reconciliation record
-    let reconRecord = await this.reconRepo.findOne({
-      where: { paymentId: payment.id },
-      order: { createdAt: 'DESC' },
-    });
+    let reconRecord: PaymentReconciliationEntity | null = null;
+    if (manager) {
+      reconRecord = await manager.findOne(PaymentReconciliationEntity, {
+        where: { paymentId: payment.id },
+        order: { createdAt: 'DESC' },
+      });
+    } else {
+      reconRecord = await this.reconRepo.findOne({
+        where: { paymentId: payment.id },
+        order: { createdAt: 'DESC' },
+      });
+    }
 
     if (!reconRecord) {
-      reconRecord = this.reconRepo.create({
-        id: this.generateReconId(payment.id),
-        paymentId: payment.id,
-        bookingId: payment.bookingId,
-        quoteId: payment.quoteId,
-        provider: payment.provider || 'simulated',
-        providerPaymentId: payment.providerPaymentId,
-        providerOrderId: payment.providerOrderId,
-        canonicalPaymentStatus: payment.status,
-        canonicalAmount: payment.amount,
-        canonicalAmountInMinorUnits: canonicalMinorUnits,
-        canonicalCurrency: canonicalCurrency,
-        mismatchCategory: ReconciliationMismatchCategory.NO_MISMATCH,
-        status: ReconciliationStatus.IN_PROGRESS,
-        attemptCount: 0,
-        requiresManualIntervention: false,
-      });
+      reconRecord = (manager ? manager.create(PaymentReconciliationEntity, { id: this.generateReconId(payment.id) }) : this.reconRepo.create({ id: this.generateReconId(payment.id) }));
+      reconRecord.paymentId = payment.id;
+      reconRecord.bookingId = payment.bookingId;
+      reconRecord.quoteId = payment.quoteId;
+      reconRecord.provider = payment.provider || 'simulated';
+      reconRecord.providerPaymentId = payment.providerPaymentId;
+      reconRecord.providerOrderId = payment.providerOrderId;
+      reconRecord.canonicalPaymentStatus = payment.status;
+      reconRecord.canonicalAmount = payment.amount;
+      reconRecord.canonicalAmountInMinorUnits = canonicalMinorUnits;
+      reconRecord.canonicalCurrency = canonicalCurrency;
+      reconRecord.mismatchCategory = ReconciliationMismatchCategory.NO_MISMATCH;
+      reconRecord.status = ReconciliationStatus.IN_PROGRESS;
+      reconRecord.attemptCount = 0;
+      reconRecord.requiresManualIntervention = false;
     }
 
     reconRecord.status = ReconciliationStatus.IN_PROGRESS;
@@ -206,11 +272,16 @@ export class PaymentReconciliationService {
     reconRecord.attemptCount = (reconRecord.attemptCount || 0) + 1;
     reconRecord.lastAttemptedAt = new Date();
 
+    const saveRecon = async (rec: PaymentReconciliationEntity) => {
+      return manager ? await manager.save(rec) : await this.reconRepo.save(rec);
+    };
+
     // 1. Check duplicate provider reference across payments
     if (payment.providerPaymentId) {
-      const duplicatePayments = await this.paymentRepo.find({
-        where: { providerPaymentId: payment.providerPaymentId },
-      });
+      const duplicatePayments = manager
+        ? await manager.find(PaymentEntity, { where: { providerPaymentId: payment.providerPaymentId } })
+        : await this.paymentRepo.find({ where: { providerPaymentId: payment.providerPaymentId } });
+
       if (duplicatePayments.length > 1) {
         reconRecord.mismatchCategory = ReconciliationMismatchCategory.DUPLICATE_PROVIDER_REFERENCE;
         reconRecord.status = ReconciliationStatus.REQUIRED;
@@ -218,14 +289,17 @@ export class PaymentReconciliationService {
         reconRecord.sanitizedResolutionReason = this.sanitizeText(
           `Duplicate providerPaymentId ${payment.providerPaymentId} shared across ${duplicatePayments.length} payments`,
         );
-        return await this.reconRepo.save(reconRecord);
+        return await saveRecon(reconRecord);
       }
     }
 
     // 2. Fetch associated booking
     let booking: BookingEntity | null = null;
     if (payment.bookingId) {
-      booking = await this.bookingRepo.findOne({ where: { id: payment.bookingId } });
+      booking = manager
+        ? await manager.findOne(BookingEntity, { where: { id: payment.bookingId } })
+        : await this.bookingRepo.findOne({ where: { id: payment.bookingId } });
+
       if (!booking) {
         reconRecord.mismatchCategory = ReconciliationMismatchCategory.MISSING_BOOKING;
         reconRecord.status = ReconciliationStatus.REQUIRED;
@@ -233,7 +307,7 @@ export class PaymentReconciliationService {
         reconRecord.sanitizedResolutionReason = this.sanitizeText(
           `Associated booking ${payment.bookingId} not found in database`,
         );
-        return await this.reconRepo.save(reconRecord);
+        return await saveRecon(reconRecord);
       }
     }
 
@@ -258,7 +332,7 @@ export class PaymentReconciliationService {
         reconRecord.status = ReconciliationStatus.REQUIRED;
         reconRecord.nextRetryAt = this.calculateNextRetry(reconRecord.attemptCount);
         reconRecord.sanitizedResolutionReason = this.sanitizeText(err);
-        return await this.reconRepo.save(reconRecord);
+        return await saveRecon(reconRecord);
       }
 
       if (
@@ -271,7 +345,7 @@ export class PaymentReconciliationService {
         reconRecord.status = ReconciliationStatus.REQUIRED;
         reconRecord.nextRetryAt = this.calculateNextRetry(reconRecord.attemptCount);
         reconRecord.sanitizedResolutionReason = this.sanitizeText(err);
-        return await this.reconRepo.save(reconRecord);
+        return await saveRecon(reconRecord);
       }
 
       if (msg.includes('not found') || statusVal === '404') {
@@ -281,14 +355,14 @@ export class PaymentReconciliationService {
         reconRecord.sanitizedResolutionReason = this.sanitizeText(
           `Provider reported payment ${lookupId} not found`,
         );
-        return await this.reconRepo.save(reconRecord);
+        return await saveRecon(reconRecord);
       }
 
       reconRecord.mismatchCategory = ReconciliationMismatchCategory.INVALID_PROVIDER_RESPONSE;
       reconRecord.status = ReconciliationStatus.REQUIRED;
       reconRecord.requiresManualIntervention = true;
       reconRecord.sanitizedResolutionReason = this.sanitizeText(err);
-      return await this.reconRepo.save(reconRecord);
+      return await saveRecon(reconRecord);
     }
 
     if (!providerDetails) {
@@ -296,7 +370,7 @@ export class PaymentReconciliationService {
       reconRecord.status = ReconciliationStatus.REQUIRED;
       reconRecord.requiresManualIntervention = true;
       reconRecord.sanitizedResolutionReason = this.sanitizeText('Provider returned empty payment details');
-      return await this.reconRepo.save(reconRecord);
+      return await saveRecon(reconRecord);
     }
 
     // Validate provider response format
@@ -310,7 +384,7 @@ export class PaymentReconciliationService {
       reconRecord.status = ReconciliationStatus.REQUIRED;
       reconRecord.requiresManualIntervention = true;
       reconRecord.sanitizedResolutionReason = this.sanitizeText('Malformed provider response format');
-      return await this.reconRepo.save(reconRecord);
+      return await saveRecon(reconRecord);
     }
 
     const observedMinorUnits = Math.round(providerDetails.amountInMinorUnits);
@@ -333,7 +407,7 @@ export class PaymentReconciliationService {
       reconRecord.sanitizedResolutionReason = this.sanitizeText(
         `Provider order mismatch: canonical=${payment.providerOrderId}, provider=${providerDetails.orderId}`,
       );
-      return await this.reconRepo.save(reconRecord);
+      return await saveRecon(reconRecord);
     }
 
     // 5. Exact Amount Matching (Minor Units)
@@ -344,7 +418,7 @@ export class PaymentReconciliationService {
       reconRecord.sanitizedResolutionReason = this.sanitizeText(
         `Amount mismatch: canonical=${canonicalMinorUnits} paise, observed=${observedMinorUnits} paise`,
       );
-      return await this.reconRepo.save(reconRecord);
+      return await saveRecon(reconRecord);
     }
 
     // 6. Currency Matching
@@ -355,19 +429,28 @@ export class PaymentReconciliationService {
       reconRecord.sanitizedResolutionReason = this.sanitizeText(
         `Currency mismatch: canonical=${canonicalCurrency}, observed=${observedCurrency}`,
       );
-      return await this.reconRepo.save(reconRecord);
+      return await saveRecon(reconRecord);
     }
 
     // 7. Check Webhook Gap
     let hasProcessedWebhook = false;
     if (payment.providerPaymentId || payment.providerOrderId) {
-      const webhook = await this.webhookRepo.findOne({
-        where: [
-          ...(payment.providerPaymentId ? [{ providerPaymentId: payment.providerPaymentId }] : []),
-          ...(payment.providerOrderId ? [{ providerOrderId: payment.providerOrderId }] : []),
-          ...(payment.providerPaymentId ? [{ paymentId: payment.providerPaymentId }] : []),
-        ],
-      });
+      const webhook = manager
+        ? await manager.findOne(WebhookEventEntity, {
+            where: [
+              ...(payment.providerPaymentId ? [{ providerPaymentId: payment.providerPaymentId }] : []),
+              ...(payment.providerOrderId ? [{ providerOrderId: payment.providerOrderId }] : []),
+              ...(payment.providerPaymentId ? [{ paymentId: payment.providerPaymentId }] : []),
+            ],
+          })
+        : await this.webhookRepo.findOne({
+            where: [
+              ...(payment.providerPaymentId ? [{ providerPaymentId: payment.providerPaymentId }] : []),
+              ...(payment.providerOrderId ? [{ providerOrderId: payment.providerOrderId }] : []),
+              ...(payment.providerPaymentId ? [{ paymentId: payment.providerPaymentId }] : []),
+            ],
+          });
+
       if (webhook && (webhook.status === 'PROCESSED' || Boolean(webhook.processedAt))) {
         hasProcessedWebhook = true;
       }
@@ -381,21 +464,23 @@ export class PaymentReconciliationService {
     if (isProviderRefunded && payment.status !== PaymentStatus.REFUNDED) {
       if (isValidPaymentStateTransition(payment.status, PaymentStatus.REFUNDED)) {
         payment.status = PaymentStatus.REFUNDED;
-        await this.paymentRepo.save(payment);
+        if (manager) await manager.save(payment);
+        else await this.paymentRepo.save(payment);
 
         if (booking && isValidBookingTransition(booking.status, BookingStatus.REFUNDED)) {
           booking.status = BookingStatus.REFUNDED;
-          await this.bookingRepo.save(booking);
+          if (manager) await manager.save(booking);
+          else await this.bookingRepo.save(booking);
         }
 
-        await this.resolveAssociatedRecovery(payment.id, 'Resolved refund via reconciliation engine');
+        await this.resolveAssociatedRecovery(payment.id, 'Resolved refund via reconciliation engine', manager);
 
         reconRecord.mismatchCategory = ReconciliationMismatchCategory.REFUND_STATE_MISMATCH;
         reconRecord.status = ReconciliationStatus.RESOLVED;
         reconRecord.resolutionAction = 'CONFIRMED_REFUND';
         reconRecord.resolvedAt = new Date();
         reconRecord.sanitizedResolutionReason = this.sanitizeText('Provider refund applied to canonical ledger');
-        return await this.reconRepo.save(reconRecord);
+        return await saveRecon(reconRecord);
       } else {
         reconRecord.mismatchCategory = ReconciliationMismatchCategory.REFUND_STATE_MISMATCH;
         reconRecord.status = ReconciliationStatus.REQUIRED;
@@ -403,7 +488,7 @@ export class PaymentReconciliationService {
         reconRecord.sanitizedResolutionReason = this.sanitizeText(
           `Cannot transition payment from ${payment.status} to REFUNDED`,
         );
-        return await this.reconRepo.save(reconRecord);
+        return await saveRecon(reconRecord);
       }
     }
 
@@ -417,7 +502,7 @@ export class PaymentReconciliationService {
       reconRecord.sanitizedResolutionReason = this.sanitizeText(
         'Canonical state is CAPTURED but provider reports failed. Kept canonical to prevent illegal regression.',
       );
-      return await this.reconRepo.save(reconRecord);
+      return await saveRecon(reconRecord);
     }
 
     if (
@@ -432,14 +517,16 @@ export class PaymentReconciliationService {
         if (providerDetails.paymentId && !payment.providerPaymentId) {
           payment.providerPaymentId = providerDetails.paymentId;
         }
-        await this.paymentRepo.save(payment);
+        if (manager) await manager.save(payment);
+        else await this.paymentRepo.save(payment);
 
         if (booking && (booking.status === BookingStatus.PENDING || booking.status === BookingStatus.FAILED)) {
           booking.status = BookingStatus.CONFIRMED;
-          await this.bookingRepo.save(booking);
+          if (manager) await manager.save(booking);
+          else await this.bookingRepo.save(booking);
         }
 
-        await this.resolveAssociatedRecovery(payment.id, 'Resolved capture via reconciliation engine');
+        await this.resolveAssociatedRecovery(payment.id, 'Resolved capture via reconciliation engine', manager);
 
         const mismatchCat = !hasProcessedWebhook
           ? ReconciliationMismatchCategory.WEBHOOK_GAP
@@ -452,7 +539,7 @@ export class PaymentReconciliationService {
         reconRecord.sanitizedResolutionReason = this.sanitizeText(
           `Synchronized canonical payment to CAPTURED based on provider capture (WebhookGap=${!hasProcessedWebhook})`,
         );
-        return await this.reconRepo.save(reconRecord);
+        return await saveRecon(reconRecord);
       }
     }
 
@@ -460,7 +547,8 @@ export class PaymentReconciliationService {
     if (payment.status === PaymentStatus.CAPTURED && booking) {
       if (booking.status === BookingStatus.PENDING || booking.status === BookingStatus.FAILED) {
         booking.status = BookingStatus.CONFIRMED;
-        await this.bookingRepo.save(booking);
+        if (manager) await manager.save(booking);
+        else await this.bookingRepo.save(booking);
 
         reconRecord.mismatchCategory = ReconciliationMismatchCategory.BOOKING_STATE_MISMATCH;
         reconRecord.status = ReconciliationStatus.RESOLVED;
@@ -469,7 +557,7 @@ export class PaymentReconciliationService {
         reconRecord.sanitizedResolutionReason = this.sanitizeText(
           'Repaired desynchronized booking to CONFIRMED based on canonical CAPTURED payment',
         );
-        return await this.reconRepo.save(reconRecord);
+        return await saveRecon(reconRecord);
       }
     }
 
@@ -490,7 +578,7 @@ export class PaymentReconciliationService {
         reconRecord.resolvedAt = new Date();
         reconRecord.sanitizedResolutionReason = this.sanitizeText('Canonical ledger and provider in full agreement');
       }
-      return await this.reconRepo.save(reconRecord);
+      return await saveRecon(reconRecord);
     }
 
     // Fallback unhandled state
@@ -500,12 +588,13 @@ export class PaymentReconciliationService {
     reconRecord.sanitizedResolutionReason = this.sanitizeText(
       `Unhandled state combination: DB=${payment.status}, Provider=${observedStatus}`,
     );
-    return await this.reconRepo.save(reconRecord);
+    return await saveRecon(reconRecord);
   }
 
-  private async resolveAssociatedRecovery(paymentId: string, reason: string): Promise<void> {
+  private async resolveAssociatedRecovery(paymentId: string, reason: string, manager?: any): Promise<void> {
     try {
-      const recoveries = await this.recoveryRepo.find({
+      const repo = manager ? manager.getRepository(PaymentRecoveryEntity) : this.recoveryRepo;
+      const recoveries = await repo.find({
         where: [
           { paymentId, recoveryStatus: In([RecoveryStatus.REQUIRED, RecoveryStatus.IN_PROGRESS]) },
           { resourceId: paymentId, recoveryStatus: In([RecoveryStatus.REQUIRED, RecoveryStatus.IN_PROGRESS]) },
@@ -517,7 +606,7 @@ export class PaymentReconciliationService {
         rec.requiresManualIntervention = false;
         rec.resolvedAt = new Date();
         rec.resolutionNotes = this.sanitizeText(reason);
-        await this.recoveryRepo.save(rec);
+        await repo.save(rec);
       }
     } catch (err) {
       this.logger.error(`[Reconciliation] Failed to resolve associated recovery for ${paymentId}: ${err}`);
@@ -525,7 +614,7 @@ export class PaymentReconciliationService {
   }
 
   /**
-   * Bounded Exponential Backoff calculation (max 1 hour).
+   * Bounded Exponential Backoff calculation (max 1 hour / 3600 seconds).
    */
   private calculateNextRetry(attemptCount: number): Date {
     const delaySec = Math.min(60 * Math.pow(2, Math.max(0, attemptCount - 1)), 3600);
@@ -533,17 +622,35 @@ export class PaymentReconciliationService {
   }
 
   /**
-   * Batch reconciles pending and retry-eligible records.
+   * Triggers background sweep with concurrency protection.
+   */
+  async runScheduledSweep(): Promise<{ processed: number; resolved: number; failed: number }> {
+    if (this.isBatchRunning) {
+      this.logger.warn('[ReconciliationScheduler] Sweep skipped: previous batch still in progress');
+      return { processed: 0, resolved: 0, failed: 0 };
+    }
+    this.isBatchRunning = true;
+    try {
+      return await this.reconcileBatch(20);
+    } finally {
+      this.isBatchRunning = false;
+    }
+  }
+
+  /**
+   * Batch reconciles pending and retry-eligible records with bounded retry limit.
    */
   async reconcileBatch(limit = 20): Promise<{ processed: number; resolved: number; failed: number }> {
+    const boundedLimit = Math.min(Math.max(1, limit || 20), 50);
     const now = new Date();
+
     const records = await this.reconRepo.find({
       where: [
         { status: ReconciliationStatus.REQUIRED, nextRetryAt: LessThanOrEqual(now) },
         { status: ReconciliationStatus.REQUIRED, attemptCount: 0 },
       ],
       order: { nextRetryAt: 'ASC' },
-      take: limit,
+      take: boundedLimit,
     });
 
     let processed = 0;
@@ -551,6 +658,19 @@ export class PaymentReconciliationService {
     let failed = 0;
 
     for (const record of records) {
+      // If record exceeded maximum retry threshold (5 attempts), mark permanently FAILED for operator review
+      if (record.attemptCount >= 5) {
+        record.status = ReconciliationStatus.FAILED;
+        record.requiresManualIntervention = true;
+        record.sanitizedResolutionReason = this.sanitizeText(
+          'Exceeded maximum retry attempts (5). Retained for manual operator review.',
+        );
+        await this.reconRepo.save(record);
+        failed++;
+        processed++;
+        continue;
+      }
+
       try {
         const result = await this.reconcilePayment(record.paymentId);
         processed++;
@@ -570,6 +690,7 @@ export class PaymentReconciliationService {
 
   /**
    * Manual resolution by administrator / operator.
+   * CANNOT bypass canonical payment or booking state transition validators.
    */
   async manualResolve(
     id: string,
@@ -581,6 +702,47 @@ export class PaymentReconciliationService {
     }
 
     const sanitizedNotes = this.sanitizeText(options.notes || options.action);
+
+    // If an administrative action requests forcing a payment state transition, validate it strictly!
+    if (options.targetPaymentStatus) {
+      const payment = await this.paymentRepo.findOne({ where: { id: record.paymentId } });
+      if (payment) {
+        assertValidPaymentStateTransition(payment.status, options.targetPaymentStatus);
+        payment.status = options.targetPaymentStatus;
+        await this.paymentRepo.save(payment);
+      }
+    } else if (options.action.startsWith('FORCE_')) {
+      const payment = await this.paymentRepo.findOne({ where: { id: record.paymentId } });
+      if (payment) {
+        let requestedTarget: PaymentStatus | null = null;
+        if (options.action === 'FORCE_CAPTURE') requestedTarget = PaymentStatus.CAPTURED;
+        else if (options.action === 'FORCE_REFUND') requestedTarget = PaymentStatus.REFUNDED;
+        else if (options.action === 'FORCE_FAIL') requestedTarget = PaymentStatus.FAILED;
+        else if (options.action === 'FORCE_CANCEL') requestedTarget = PaymentStatus.CANCELLED;
+
+        if (requestedTarget) {
+          assertValidPaymentStateTransition(payment.status, requestedTarget);
+          payment.status = requestedTarget;
+          await this.paymentRepo.save(payment);
+        }
+      }
+    }
+
+    // If an administrative action requests forcing a booking state transition, validate it strictly!
+    if (options.targetBookingStatus && record.bookingId) {
+      const booking = await this.bookingRepo.findOne({ where: { id: record.bookingId } });
+      if (booking) {
+        if (!isValidBookingTransition(booking.status, options.targetBookingStatus)) {
+          throw new BadRequestException(
+            `Invalid booking state transition from ${booking.status} to ${options.targetBookingStatus}`,
+          );
+        }
+        booking.status = options.targetBookingStatus;
+        await this.bookingRepo.save(booking);
+      }
+    }
+
+    const previousStatus = record.status;
     record.status = ReconciliationStatus.RESOLVED;
     record.requiresManualIntervention = false;
     record.resolutionAction = options.action || 'MANUAL_RESOLUTION';
@@ -591,6 +753,11 @@ export class PaymentReconciliationService {
       manualResolution: {
         actor: options.actor || 'admin',
         action: options.action,
+        previousStatus,
+        newStatus: record.status,
+        paymentId: record.paymentId,
+        bookingId: record.bookingId || null,
+        mismatchCategory: record.mismatchCategory,
         notes: sanitizedNotes,
         resolvedAt: new Date().toISOString(),
       },
