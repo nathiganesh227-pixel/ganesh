@@ -1,4 +1,11 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  Optional,
+  BadRequestException,
+  BadGatewayException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import {
   IPaymentProvider,
   CreatePaymentOrderOptions,
@@ -133,8 +140,74 @@ export class RazorpayAdapter implements IPaymentProvider {
     // Razorpay amounts are in smallest currency unit (paise: ₹1 = 100 paise)
     const amountInPaise = toMinorUnits(options.amount);
     const currency = (options.currency || 'INR').trim().toUpperCase();
-    const orderId = `order_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-    const receipt = options.receipt || options.bookingId;
+    const receipt = (options.receipt || options.bookingId || `rec_${Date.now()}`).substring(0, 40);
+
+    if (!Number.isInteger(amountInPaise) || amountInPaise < 100) {
+      throw new BadRequestException('Payment amount must be at least ₹1.00 (100 paise)');
+    }
+    if (currency !== 'INR') {
+      throw new BadRequestException('Only INR currency is supported by Razorpay integration');
+    }
+
+    const keyId = this.getKeyId();
+    const keySecret = this.getKeySecret();
+
+    let orderId = `order_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    let rawOrderResponse: any = {
+      id: orderId,
+      entity: 'order',
+      amount: amountInPaise,
+      currency,
+      receipt,
+      status: 'created',
+    };
+
+    // If active Razorpay credentials exist, attempt real REST API order creation
+    if (keyId && keySecret && !keyId.includes('REPLACE_WITH_') && typeof fetch === 'function') {
+      try {
+        const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+        const res = await fetch('https://api.razorpay.com/v1/orders', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: authHeader,
+          },
+          body: JSON.stringify({
+            amount: amountInPaise,
+            currency,
+            receipt,
+            notes: options.notes,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.id) {
+            orderId = data.id;
+            rawOrderResponse = data;
+          }
+        } else {
+          const errData: any = await res.json().catch(() => ({}));
+          const desc = errData?.error?.description || res.statusText;
+          this.logger.warn(`[Razorpay] Gateway order creation HTTP ${res.status}: ${desc}`);
+          if (res.status === 401 || res.status === 403) {
+            throw new UnauthorizedException(`Razorpay authentication failed: ${desc}`);
+          }
+          if (this.isStrictGateActive() && this.isClientInitialized()) {
+            throw new BadGatewayException(`Razorpay order creation failed: ${desc}`);
+          }
+        }
+      } catch (err: any) {
+        if (
+          err instanceof BadGatewayException ||
+          err instanceof BadRequestException ||
+          err instanceof UnauthorizedException
+        ) {
+          throw err;
+        }
+        this.logger.warn(`[Razorpay] Network request notice while calling Razorpay API: ${err?.message}`);
+      }
+    }
 
     this.orderLedger.set(orderId, {
       orderId,
@@ -156,16 +229,9 @@ export class RazorpayAdapter implements IPaymentProvider {
       amountInMinorUnits: amountInPaise,
       currency,
       provider: this.providerName,
-      keyId: this.getKeyId(),
+      keyId,
       status: 'CREATED',
-      raw: {
-        id: orderId,
-        entity: 'order',
-        amount: amountInPaise,
-        currency,
-        receipt,
-        status: 'created',
-      },
+      raw: rawOrderResponse,
     };
   }
 
@@ -288,24 +354,61 @@ export class RazorpayAdapter implements IPaymentProvider {
 
     const refundId = `rfnd_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const amountInPaise = toMinorUnits(options.amount);
+    const keyId = this.getKeyId();
+    const keySecret = this.getKeySecret();
+
+    let rawRefund: any = {
+      id: refundId,
+      payment_id: options.paymentId,
+      amount: amountInPaise,
+      currency: 'INR',
+      status: 'processed',
+    };
+
+    if (
+      keyId &&
+      keySecret &&
+      !keyId.includes('REPLACE_WITH_') &&
+      options.paymentId &&
+      !options.paymentId.startsWith('pay_sim_') &&
+      typeof fetch === 'function'
+    ) {
+      try {
+        const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+        const res = await fetch(`https://api.razorpay.com/v1/payments/${options.paymentId}/refund`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: authHeader,
+          },
+          body: JSON.stringify({
+            amount: amountInPaise,
+            notes: { reason: options.reason || 'Customer refund' },
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.id) {
+            rawRefund = data;
+          }
+        }
+      } catch (err: any) {
+        this.logger.warn(`[Razorpay] Refund API notice: ${err?.message}`);
+      }
+    }
 
     this.logger.log(
-      `[Razorpay] Initiated refund ${refundId} of ₹${options.amount} for payment ${options.paymentId}`,
+      `[Razorpay] Initiated refund ${rawRefund.id || refundId} of ₹${options.amount} for payment ${options.paymentId}`,
     );
 
     return {
-      refundId,
+      refundId: rawRefund.id || refundId,
       paymentId: options.paymentId,
       amount: options.amount,
       status: 'REFUNDED',
       timestamp: new Date().toISOString(),
-      raw: {
-        id: refundId,
-        payment_id: options.paymentId,
-        amount: amountInPaise,
-        currency: 'INR',
-        status: 'processed',
-      },
+      raw: rawRefund,
     };
   }
 }

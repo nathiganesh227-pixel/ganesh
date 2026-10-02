@@ -60,12 +60,17 @@ export class PaymentConfigService {
    * nunca exposing secret values.
    */
   evaluate(env: NodeJS.ProcessEnv = this.getEnv()): PaymentConfigEvaluation {
-    const rawPaymentMode = env.PAYMENT_MODE;
+    const rawPaymentMode =
+      env.PAYMENT_MODE !== undefined
+        ? env.PAYMENT_MODE
+        : env.PAYMENT_PROVIDER !== undefined
+        ? env.PAYMENT_PROVIDER.toUpperCase()
+        : undefined;
     let paymentMode: PaymentMode = PaymentMode.SIMULATED;
     let isPaymentModeValid = true;
 
     if (rawPaymentMode !== undefined) {
-      const normalizedMode = String(rawPaymentMode).trim();
+      const normalizedMode = String(rawPaymentMode).trim().toUpperCase();
       if (
         normalizedMode === PaymentMode.SIMULATED ||
         normalizedMode === PaymentMode.RAZORPAY
